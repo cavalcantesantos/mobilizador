@@ -52,6 +52,9 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
 }).addTo(map);
 
+var camadaMarcadores = L.layerGroup().addTo(map);
+var camadaCirculo = L.layerGroup().addTo(map);
+
 function log(msg){
     document.getElementById("log").innerHTML += msg + "<br>";
 }
@@ -88,38 +91,26 @@ async function geocode(endereco){
 
 async function localizarCEP(cep){
 
-    log("Consultando ViaCEP: " + cep);
-
     try{
         let via = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
         let dados = await via.json();
 
-        if(dados.erro){
-            log("CEP inválido: " + cep);
-            return {status:"nao_localizado"};
-        }
+        if(dados.erro) return {status:"nao_localizado"};
 
         let tentativas = [];
 
-        if(dados.logradouro){
+        if(dados.logradouro)
             tentativas.push(`${dados.logradouro}, ${dados.localidade} - ${dados.uf}, Brasil`);
-        }
 
-        if(dados.bairro){
+        if(dados.bairro)
             tentativas.push(`${dados.bairro}, ${dados.localidade} - ${dados.uf}, Brasil`);
-        }
 
         tentativas.push(`${dados.localidade} - ${dados.uf}, Brasil`);
         tentativas.push(`${dados.localidade}, Brasil`);
 
         for(let endereco of tentativas){
-
-            log("Tentando geocodificar: " + endereco);
-
             let geo = await geocode(endereco);
-
             if(geo){
-
                 let aproximado =
                     !dados.logradouro ||
                     cep.endsWith("000") ||
@@ -133,11 +124,9 @@ async function localizarCEP(cep){
             }
         }
 
-        log("Falha total no CEP: " + cep);
         return {status:"nao_localizado"};
 
     } catch(e){
-        log("Erro ViaCEP: " + e);
         return {status:"nao_localizado"};
     }
 }
@@ -159,16 +148,12 @@ function calcularDistancia(lat1, lon1, lat2, lon2){
 async function iniciar(){
 
     document.getElementById("log").innerHTML = "";
+    camadaMarcadores.clearLayers();
+    camadaCirculo.clearLayers();
 
     let cepPrincipal = document.getElementById("cepPrincipal").value.trim();
     let raio = parseFloat(document.getElementById("raio").value);
     let linhas = document.getElementById("csv").value.trim().split("\n");
-
-    map.eachLayer(function(layer){
-        if(layer instanceof L.Marker || layer instanceof L.Circle){
-            map.removeLayer(layer);
-        }
-    });
 
     let principal = await localizarCEP(cepPrincipal);
 
@@ -178,18 +163,17 @@ async function iniciar(){
     }
 
     let centro = [principal.lat, principal.lon];
-
-    map.setView(centro, 10);
+    map.setView(centro, 11);
 
     L.marker(centro, {icon: criarIcone("blue")})
-        .addTo(map)
-        .bindPopup("CEP Principal");
+        .bindPopup("CEP Principal")
+        .addTo(camadaMarcadores);
 
     L.circle(centro, {
         radius: raio * 1000,
         color: "blue",
         fill:false
-    }).addTo(map);
+    }).addTo(camadaCirculo);
 
     for(let linha of linhas){
 
@@ -203,11 +187,6 @@ async function iniciar(){
 
         if(ponto.status === "nao_localizado"){
             log("CEP não localizado: " + cep);
-
-            L.marker(centro, {icon: criarIcone("gray")})
-                .addTo(map)
-                .bindPopup(`CEP: ${cep}<br>Não localizado`);
-
             continue;
         }
 
@@ -219,28 +198,17 @@ async function iniciar(){
         let cor;
 
         if(distancia <= raio){
-
-            if(ponto.status === "aproximado"){
-                cor = "yellow";
-            } else {
-                cor = "green";
-            }
-
-            let mensagem = "Você está sendo convocado. Apresente-se no ponto do CEP principal.";
-
+            cor = ponto.status === "aproximado" ? "yellow" : "green";
             log("CONVOCADO → " + cep + " | " + distancia.toFixed(2) + " km");
-            log("Mensagem enviada para " + email + ": " + mensagem);
-
+            log("Mensagem enviada para " + email + ": Você está sendo convocado.");
         } else {
-
             cor = "red";
             log("FORA DO RAIO → " + cep + " | " + distancia.toFixed(2) + " km");
-
         }
 
         L.marker([ponto.lat, ponto.lon], {icon: criarIcone(cor)})
-            .addTo(map)
-            .bindPopup(`CEP: ${cep}<br>${distancia.toFixed(2)} km`);
+            .bindPopup(`CEP: ${cep}<br>${distancia.toFixed(2)} km`)
+            .addTo(camadaMarcadores);
     }
 
     log("Operação concluída.");
