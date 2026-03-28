@@ -13,6 +13,14 @@ body { font-family: Arial; margin: 0; padding: 0; }
 .controls { padding: 10px; background: #f0f0f0; }
 textarea { width: 100%; height: 100px; }
 input { margin: 5px 0; }
+
+#painel {
+    background:#222;
+    color:white;
+    padding:10px;
+    font-weight:bold;
+}
+
 #log {
     background: black;
     color: #00ff00;
@@ -41,6 +49,10 @@ input { margin: 5px 0; }
 <button onclick="iniciar()">Iniciar Operação</button>
 </div>
 
+<div id="painel">
+Aguardando operação...
+</div>
+
 <div id="map"></div>
 <div id="log"></div>
 
@@ -48,15 +60,23 @@ input { margin: 5px 0; }
 
 var map = L.map('map').setView([-15.7801, -47.9292], 5);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© OpenStreetMap'
-}).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
 var camadaMarcadores = L.layerGroup().addTo(map);
 var camadaCirculo = L.layerGroup().addTo(map);
 
 function log(msg){
     document.getElementById("log").innerHTML += msg + "<br>";
+}
+
+function atualizarPainel(dados){
+    document.getElementById("painel").innerHTML = `
+    CEPs Processados: ${dados.processados} |
+    Localizados: ${dados.localizados} |
+    Dentro do Raio: ${dados.dentro} |
+    Fora do Raio: ${dados.fora} |
+    Convocados: ${dados.convocados}
+    `;
 }
 
 function criarIcone(cor){
@@ -73,28 +93,22 @@ function criarIcone(cor){
 }
 
 async function geocode(endereco){
-    try{
-        let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(endereco)}`;
-        let res = await fetch(url);
-        let data = await res.json();
-        if(data.length > 0){
-            return {
-                lat: parseFloat(data[0].lat),
-                lon: parseFloat(data[0].lon)
-            };
-        }
-    } catch(e){
-        log("Erro geocode: " + e);
+    let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(endereco)}`;
+    let res = await fetch(url);
+    let data = await res.json();
+    if(data.length > 0){
+        return {
+            lat: parseFloat(data[0].lat),
+            lon: parseFloat(data[0].lon)
+        };
     }
     return null;
 }
 
 async function localizarCEP(cep){
-
     try{
         let via = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
         let dados = await via.json();
-
         if(dados.erro) return {status:"nao_localizado"};
 
         let tentativas = [];
@@ -106,7 +120,6 @@ async function localizarCEP(cep){
             tentativas.push(`${dados.bairro}, ${dados.localidade} - ${dados.uf}, Brasil`);
 
         tentativas.push(`${dados.localidade} - ${dados.uf}, Brasil`);
-        tentativas.push(`${dados.localidade}, Brasil`);
 
         for(let endereco of tentativas){
             let geo = await geocode(endereco);
@@ -151,6 +164,14 @@ async function iniciar(){
     camadaMarcadores.clearLayers();
     camadaCirculo.clearLayers();
 
+    let estat = {
+        processados:0,
+        localizados:0,
+        dentro:0,
+        fora:0,
+        convocados:0
+    };
+
     let cepPrincipal = document.getElementById("cepPrincipal").value.trim();
     let raio = parseFloat(document.getElementById("raio").value);
     let linhas = document.getElementById("csv").value.trim().split("\n");
@@ -179,6 +200,8 @@ async function iniciar(){
 
         if(!linha.includes(",")) continue;
 
+        estat.processados++;
+
         let partes = linha.split(",");
         let cep = partes[0].trim();
         let email = partes[1].trim();
@@ -190,6 +213,8 @@ async function iniciar(){
             continue;
         }
 
+        estat.localizados++;
+
         let distancia = calcularDistancia(
             principal.lat, principal.lon,
             ponto.lat, ponto.lon
@@ -198,10 +223,13 @@ async function iniciar(){
         let cor;
 
         if(distancia <= raio){
+            estat.dentro++;
+            estat.convocados++;
             cor = ponto.status === "aproximado" ? "yellow" : "green";
             log("CONVOCADO → " + cep + " | " + distancia.toFixed(2) + " km");
-            log("Mensagem enviada para " + email + ": Você está sendo convocado.");
+            log("Mensagem enviada para " + email);
         } else {
+            estat.fora++;
             cor = "red";
             log("FORA DO RAIO → " + cep + " | " + distancia.toFixed(2) + " km");
         }
@@ -211,6 +239,7 @@ async function iniciar(){
             .addTo(camadaMarcadores);
     }
 
+    atualizarPainel(estat);
     log("Operação concluída.");
 }
 
