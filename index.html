@@ -12,27 +12,30 @@
 body{font-family:Arial;margin:0}
 #map{height:500px}
 .controls{padding:10px;background:#f2f2f2}
-textarea{width:100%;height:100px}
-#log{background:#000;color:#00ff00;height:150px;overflow:auto;padding:10px;font-size:12px}
+textarea{width:100%;height:120px}
 #painel{background:#111;color:#fff;padding:10px;font-weight:bold}
+#log{background:#000;color:#00ff00;height:150px;overflow:auto;padding:10px;font-size:12px}
 button{margin-top:5px}
 </style>
 </head>
 <body>
 
 <div class="controls">
-<h2>Sistema Operacional Oficial</h2>
+<h2>Sistema Operacional Público</h2>
 
-CEP Principal:<br>
-<input type="text" id="cepPrincipal"><br>
+Latitude Base:<br>
+<input type="number" id="latBase" step="0.000001" value="-15.793889"><br>
+
+Longitude Base:<br>
+<input type="number" id="lonBase" step="0.000001" value="-47.882778"><br>
 
 Raio (km):<br>
 <input type="number" id="raio" value="50"><br>
 
-CSV (CEP,email):<br>
+CSV (cep,email,lat,lon):<br>
 <textarea id="csv"></textarea><br>
 
-<button onclick="iniciar()">Iniciar Operação</button>
+<button onclick="iniciar()">Iniciar</button>
 <button onclick="gerarPDF()">Gerar Relatório</button>
 </div>
 
@@ -47,70 +50,22 @@ let dados;
 function resetar(){
 dados={
 processados:0,
-localizados:0,
 dentro:0,
 fora:0,
-naoLocalizados:0,
 convocados:[],
-foraLista:[],
-naoLista:[]
+foraLista:[]
 };
 }
 
-var map=L.map('map').setView([-15.78,-47.93],5);
+var map=L.map('map').setView([-15.79,-47.88],11);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
 let camada=L.layerGroup().addTo(map);
-let circuloLayer=L.layerGroup().addTo(map);
-
-function log(msg){
-document.getElementById("log").innerHTML+=msg+"<br>";
-}
-
-function atualizar(){
-document.getElementById("painel").innerHTML=
-`Processados: ${dados.processados} |
-Localizados: ${dados.localizados} |
-Dentro: ${dados.dentro} |
-Fora: ${dados.fora} |
-Não Localizados: ${dados.naoLocalizados}`;
-}
 
 function icone(cor){
 return L.divIcon({
 className:'',
-iconSize:[18,18],
 html:`<div style="background:${cor};width:16px;height:16px;border-radius:50%;border:2px solid white"></div>`
 });
-}
-
-async function localizar(cep){
-
-let r=await fetch(`https://viacep.com.br/ws/${cep}/json/`);
-let j=await r.json();
-
-if(j.erro) return null;
-
-/* Coordenadas médias por cidade (cache automático) */
-let chave=j.localidade+"-"+j.uf;
-
-if(!window.cacheCidades) window.cacheCidades={};
-
-if(window.cacheCidades[chave]) return window.cacheCidades[chave];
-
-/* Coordenada central aproximada usando mapa fixo do IBGE */
-let r2=await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/municipios?nome=${j.localidade}`);
-let cidades=await r2.json();
-
-if(cidades.length==0) return null;
-
-let lat=-15.78;
-let lon=-47.93;
-
-if(j.uf==="DF"){ lat=-15.793889; lon=-47.882778; }
-
-window.cacheCidades[chave]={lat,lon};
-return {lat,lon};
 }
 
 function distancia(a,b,c,d){
@@ -124,70 +79,61 @@ Math.sin(dLon/2)**2;
 return R*(2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x)));
 }
 
-async function iniciar(){
+function log(msg){
+document.getElementById("log").innerHTML+=msg+"<br>";
+}
+
+function atualizar(){
+document.getElementById("painel").innerHTML=
+`Processados: ${dados.processados} |
+Dentro do raio: ${dados.dentro} |
+Fora do raio: ${dados.fora}`;
+}
+
+function iniciar(){
 
 resetar();
 document.getElementById("log").innerHTML="";
 camada.clearLayers();
-circuloLayer.clearLayers();
 
-let principalCEP=document.getElementById("cepPrincipal").value.trim();
+let latBase=parseFloat(document.getElementById("latBase").value);
+let lonBase=parseFloat(document.getElementById("lonBase").value);
 let raio=parseFloat(document.getElementById("raio").value);
-let linhas=document.getElementById("csv").value.trim().split("\n");
 
-let principal=await localizar(principalCEP);
-
-if(!principal){
-log("CEP principal não localizado.");
-return;
-}
-
-map.setView([principal.lat,principal.lon],10);
-
-L.marker([principal.lat,principal.lon],{
+L.marker([latBase,lonBase],{
 icon:icone("blue"),
 zIndexOffset:1000
 }).addTo(camada);
 
-L.circle([principal.lat,principal.lon],{
+L.circle([latBase,lonBase],{
 radius:raio*1000,
 color:"blue",
 fill:false
-}).addTo(circuloLayer);
+}).addTo(camada);
 
-for(let linha of linhas){
+let linhas=document.getElementById("csv").value.trim().split("\n");
 
-if(!linha.includes(",")) continue;
+for(let i=1;i<linhas.length;i++){
+
+let [cep,email,lat,lon]=linhas[i].split(",");
+
+lat=parseFloat(lat);
+lon=parseFloat(lon);
 
 dados.processados++;
 
-let [cep,email]=linha.split(",");
-cep=cep.trim();
-email=email.trim();
-
-let ponto=await localizar(cep);
-
-if(!ponto){
-dados.naoLocalizados++;
-dados.naoLista.push(cep);
-log(`❌ CEP não localizado: ${cep}`);
-continue;
-}
-
-dados.localizados++;
-
-let km=distancia(principal.lat,principal.lon,ponto.lat,ponto.lon);
+let km=distancia(latBase,lonBase,lat,lon);
 
 if(km<=raio){
 dados.dentro++;
 dados.convocados.push(`${cep} - ${email}`);
-L.marker([ponto.lat,ponto.lon],{icon:icone("green")}).addTo(camada);
+L.marker([lat,lon],{icon:icone("green")}).addTo(camada);
 log(`📨 Convocação enviada para ${email}`);
 }else{
 dados.fora++;
 dados.foraLista.push(cep);
-L.marker([ponto.lat,ponto.lon],{icon:icone("red")}).addTo(camada);
-log(`⚠ CEP ${cep} fora do raio`);
+L.marker([lat,lon],{icon:icone("red")}).addTo(camada);
+log(`⚠ ${cep} fora do raio`);
 }
 
 }
@@ -199,12 +145,12 @@ log("Operação concluída.");
 function gerarPDF(){
 const {jsPDF}=window.jspdf;
 let doc=new jsPDF();
+
 doc.text("RELATÓRIO OPERACIONAL",10,15);
 doc.text(`Processados: ${dados.processados}`,10,30);
-doc.text(`Localizados: ${dados.localizados}`,10,36);
-doc.text(`Dentro: ${dados.dentro}`,10,42);
-doc.text(`Fora: ${dados.fora}`,10,48);
-doc.text(`Não Localizados: ${dados.naoLocalizados}`,10,54);
+doc.text(`Dentro do raio: ${dados.dentro}`,10,36);
+doc.text(`Fora do raio: ${dados.fora}`,10,42);
+
 doc.save("relatorio_operacional.pdf");
 }
 
