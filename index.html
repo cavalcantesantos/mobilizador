@@ -3,17 +3,27 @@
 <head>
 <meta charset="utf-8" />
 <title>Sistema Operacional Avançado - Brasil</title>
+
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
 <style>
 body { font-family: Arial; margin: 0; padding: 0; }
 #map { height: 600px; }
 .controls { padding: 10px; background: #f0f0f0; }
-textarea { width: 100%; height: 80px; }
+textarea { width: 100%; height: 100px; }
 input { margin: 5px 0; }
-#log { background: black; color: #00ff00; padding: 10px; height: 150px; overflow-y: scroll; font-size: 12px; }
+#log {
+    background: black;
+    color: #00ff00;
+    padding: 10px;
+    height: 180px;
+    overflow-y: auto;
+    font-size: 12px;
+}
 </style>
 </head>
+
 <body>
 
 <div class="controls">
@@ -36,7 +46,7 @@ input { margin: 5px 0; }
 
 <script>
 
-var map = L.map('map').setView([-15.7801, -47.9292], 6);
+var map = L.map('map').setView([-15.7801, -47.9292], 5);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
@@ -49,19 +59,29 @@ function log(msg){
 function criarIcone(cor){
     return L.divIcon({
         className: '',
-        html: `<div style="background:${cor};width:18px;height:18px;border-radius:50%;border:2px solid white;"></div>`
+        html: `<div style="
+            background:${cor};
+            width:20px;
+            height:20px;
+            border-radius:50%;
+            border:3px solid white;
+        "></div>`
     });
 }
 
 async function geocode(endereco){
-    let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(endereco)}`;
-    let res = await fetch(url);
-    let data = await res.json();
-    if(data.length > 0){
-        return {
-            lat: parseFloat(data[0].lat),
-            lon: parseFloat(data[0].lon)
-        };
+    try{
+        let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(endereco)}`;
+        let res = await fetch(url);
+        let data = await res.json();
+        if(data.length > 0){
+            return {
+                lat: parseFloat(data[0].lat),
+                lon: parseFloat(data[0].lon)
+            };
+        }
+    } catch(e){
+        log("Erro geocode: " + e);
     }
     return null;
 }
@@ -70,41 +90,56 @@ async function localizarCEP(cep){
 
     log("Consultando ViaCEP: " + cep);
 
-    let via = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
-    let dados = await via.json();
+    try{
+        let via = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+        let dados = await via.json();
 
-    if(dados.erro){
-        log("CEP inválido: " + cep);
+        if(dados.erro){
+            log("CEP inválido: " + cep);
+            return {status:"nao_localizado"};
+        }
+
+        let tentativas = [];
+
+        if(dados.logradouro){
+            tentativas.push(`${dados.logradouro}, ${dados.localidade} - ${dados.uf}, Brasil`);
+        }
+
+        if(dados.bairro){
+            tentativas.push(`${dados.bairro}, ${dados.localidade} - ${dados.uf}, Brasil`);
+        }
+
+        tentativas.push(`${dados.localidade} - ${dados.uf}, Brasil`);
+        tentativas.push(`${dados.localidade}, Brasil`);
+
+        for(let endereco of tentativas){
+
+            log("Tentando geocodificar: " + endereco);
+
+            let geo = await geocode(endereco);
+
+            if(geo){
+
+                let aproximado =
+                    !dados.logradouro ||
+                    cep.endsWith("000") ||
+                    cep.endsWith("900");
+
+                return {
+                    lat: geo.lat,
+                    lon: geo.lon,
+                    status: aproximado ? "aproximado" : "exato"
+                };
+            }
+        }
+
+        log("Falha total no CEP: " + cep);
+        return {status:"nao_localizado"};
+
+    } catch(e){
+        log("Erro ViaCEP: " + e);
         return {status:"nao_localizado"};
     }
-
-    let enderecoCompleto = "";
-
-    if(dados.logradouro){
-        enderecoCompleto = `${dados.logradouro}, ${dados.bairro}, ${dados.localidade} - ${dados.uf}, Brasil`;
-    } else if(dados.bairro){
-        enderecoCompleto = `${dados.bairro}, ${dados.localidade} - ${dados.uf}, Brasil`;
-    } else {
-        enderecoCompleto = `${dados.localidade} - ${dados.uf}, Brasil`;
-    }
-
-    log("Geocodificando: " + enderecoCompleto);
-
-    let geo = await geocode(enderecoCompleto);
-
-    if(geo){
-        let aproximado = !dados.logradouro;
-        return {
-            lat: geo.lat,
-            lon: geo.lon,
-            status: aproximado ? "aproximado" : "exato",
-            cidade: dados.localidade,
-            uf: dados.uf
-        };
-    }
-
-    log("Falha total no CEP: " + cep);
-    return {status:"nao_localizado"};
 }
 
 function calcularDistancia(lat1, lon1, lat2, lon2){
@@ -125,7 +160,7 @@ async function iniciar(){
 
     document.getElementById("log").innerHTML = "";
 
-    let cepPrincipal = document.getElementById("cepPrincipal").value;
+    let cepPrincipal = document.getElementById("cepPrincipal").value.trim();
     let raio = parseFloat(document.getElementById("raio").value);
     let linhas = document.getElementById("csv").value.trim().split("\n");
 
@@ -150,18 +185,29 @@ async function iniciar(){
         .addTo(map)
         .bindPopup("CEP Principal");
 
-    L.circle(centro, {radius: raio * 1000}).addTo(map);
+    L.circle(centro, {
+        radius: raio * 1000,
+        color: "blue",
+        fill:false
+    }).addTo(map);
 
     for(let linha of linhas){
 
+        if(!linha.includes(",")) continue;
+
         let partes = linha.split(",");
         let cep = partes[0].trim();
-        let email = partes[1] ? partes[1].trim() : "";
+        let email = partes[1].trim();
 
         let ponto = await localizarCEP(cep);
 
         if(ponto.status === "nao_localizado"){
             log("CEP não localizado: " + cep);
+
+            L.marker(centro, {icon: criarIcone("gray")})
+                .addTo(map)
+                .bindPopup(`CEP: ${cep}<br>Não localizado`);
+
             continue;
         }
 
@@ -170,23 +216,26 @@ async function iniciar(){
             ponto.lat, ponto.lon
         );
 
-        let cor = "";
-        let mensagem = "";
+        let cor;
 
         if(distancia <= raio){
+
             if(ponto.status === "aproximado"){
                 cor = "yellow";
             } else {
                 cor = "green";
             }
 
-            mensagem = "Você está sendo convocado. Apresente-se no ponto do CEP principal.";
+            let mensagem = "Você está sendo convocado. Apresente-se no ponto do CEP principal.";
+
             log("CONVOCADO → " + cep + " | " + distancia.toFixed(2) + " km");
             log("Mensagem enviada para " + email + ": " + mensagem);
 
         } else {
+
             cor = "red";
-            log("Fora do raio → " + cep + " | " + distancia.toFixed(2) + " km");
+            log("FORA DO RAIO → " + cep + " | " + distancia.toFixed(2) + " km");
+
         }
 
         L.marker([ponto.lat, ponto.lon], {icon: criarIcone(cor)})
