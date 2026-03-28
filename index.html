@@ -161,7 +161,7 @@ if(km<=raio){
 dados.dentro++;
 dados.convocados.push(`${cep} - ${email}`);
 L.marker([ajustado.lat,ajustado.lon],{icon:icone("green")}).addTo(camada);
-log(`📨 Convocação enviada para ${email} (CEP ${cep})`);
+log(`📨 ${email} (CEP ${cep}) → você está sendo convocado. Compareça no endereço do CEP principal e mostre o CEP principal para referência.`);
 }else{
 dados.fora++;
 dados.foraLista.push(cep);
