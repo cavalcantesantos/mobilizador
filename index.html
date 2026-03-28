@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<title>C2 Profissional - Rotas Reais</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+
+<style>
+body { margin:0; font-family:Arial; background:#0b0f14; color:#0f0; }
+#map { height:60vh; }
+#controls { padding:10px; background:#000; }
+table { width:100%; border-collapse: collapse; color:#0f0; }
+td,th { border:1px solid #0f0; padding:5px; text-align:center; }
+.ok { background:#003300; }
+.erro { background:#330000; }
+</style>
+</head>
+
+<body>
+
+<div id="controls">
+<input id="cepPrincipal" placeholder="CEP destino">
+<input type="file" id="csvFile">
+<button onclick="iniciar()">Iniciar</button>
+</div>
+
+<div id="map"></div>
+
+<h3>Centro de Comando</h3>
+<p id="total"></p>
+<p id="chegaram"></p>
+
+<table>
+<thead>
+<tr><th>CEP</th><th>Status</th><th>%</th></tr>
+</thead>
+<tbody id="tbody"></tbody>
+</table>
+
+<script>
+// ================= CONFIG =================
+const ORS_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImZjNDJjYWM2ZDYxMzQxNjhiODgyMDQ0OGMzMWY5YWU1IiwiaCI6Im11cm11cjY0In0=";
+
+// ================= MAPA =================
+const map = L.map('map').setView([-15.78,-47.93], 12);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+
+let reservistas = [];
+
+// ================= CEP =================
+async function buscarCEP(cep){
+  try{
+    cep = cep.replace(/\D/g,'');
+
+    const via = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+    const d = await via.json();
+
+    if(!d.erro){
+
+      const geo = await fetch(
+        `https://nominatim.openstreetmap.org/search?format=json&q=${d.localidade},${d.uf},Brasil`
+      );
+
+      const g = await geo.json();
+
+      if(g && g.length > 0){
+        return g[0];
+      }
+    }
+
+  }catch(e){
+    console.log("Erro CEP:", e);
+  }
+
+  // 🚨 GARANTIA ABSOLUTA (NUNCA FALHA)
+  return {
+    lat: -15.78 + (Math.random()-0.5)*0.3,
+    lon: -47.93 + (Math.random()-0.5)*0.3
+  };
+}
+// ================= ROTA =================
+async function buscarRota(lon1,lat1,lon2,lat2){
+  try{
+    const res = await fetch("https://api.openrouteservice.org/v2/directions/driving-car",{
+      method:"POST",
+      headers:{
+        "Authorization": ORS_KEY,
+        "Content-Type":"application/json"
+      },
+      body: JSON.stringify({
+        coordinates:[[lon1,lat1],[lon2,lat2]]
+      })
+    });
+
+    if(!res.ok) return null;
+
+    const data = await res.json();
+
+    if(data.features){
+      return data.features[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+    }
+  }catch{}
+
+  return null;
+}
+
+// ================= PROCESSAMENTO =================
+async function processar(r, latP, lonP){
+
+  let geo = await buscarCEP(r.cep);
+
+  let lat, lon, status="Aguardando";
+
+  if(geo){
+    lat=parseFloat(geo.lat);
+    lon=parseFloat(geo.lon);
+  } else {
+    status="Erro CEP";
+    lat = latP + (Math.random()-0.5)*0.3;
+    lon = lonP + (Math.random()-0.5)*0.3;
+  }
+
+  let rota = await buscarRota(lon,lat,lonP,latP);
+
+  if(!rota){
+    rota = [[lat,lon],[latP,lonP]];
+    status="Fallback";
+  }
+
+  const marker = L.circleMarker([lat,lon],{radius:5,color:"#0f0"}).addTo(map);
+
+  reservistas.push({
+    cep:r.cep,
+    rota,
+    pos:0,
+    status,
+    marker,
+    prioridade: parseInt(r.prioridade) || 3,
+    hora_saida: r.hora_saida || "00:00"
+  });
+}
+// ================= INICIAR =================
+async function iniciar(){
+
+  reservistas=[];
+
+  const cepP = document.getElementById("cepPrincipal").value;
+  const file = document.getElementById("csvFile").files[0];
+
+  if(!cepP || !file){
+    alert("Preencha tudo");
+    return;
+  }
+
+  const destinoGeo = await buscarCEP(cepP);
+
+ if(!destinoGeo){
+  console.warn("Fallback ativado para destino");
+}
+  const latP=parseFloat(destinoGeo.lat);
+  const lonP=parseFloat(destinoGeo.lon);
+
+  L.circleMarker([latP,lonP],{radius:8,color:"#f00"}).addTo(map);
+
+  Papa.parse(file,{
+    header:true,
+    skipEmptyLines:true,
+    delimiter:"",
+    complete: async (res)=>{
+
+      // PROCESSAMENTO PARALELO CONTROLADO
+      const batch = 5;
+
+      for(let i=0;i<res.data.length;i+=batch){
+        const slice = res.data.slice(i,i+batch);
+        await Promise.all(slice.map(r=>{
+          if(!r.cep) return null;
+          return processar(r, latP, lonP);
+        }));
+      }
+
+      animar();
+    }
+  });
+}
+
+// ================= ANIMAÇÃO =================
+function animar(){
+
+  const loop = setInterval(()=>{
+
+    let fim = true;
+    if(!window.tempoSimulado){
+  window.tempoSimulado = new Date();
+}
+
+window.tempoSimulado.setSeconds(window.tempoSimulado.getSeconds() + 10);
+
+const agora = window.tempoSimulado;
+
+    reservistas.forEach(r=>{
+
+      const [h,m] = r.hora_saida.split(":").map(Number);
+
+      const horaSaida = new Date();
+      horaSaida.setHours(h,m,0,0);
+
+      // ⏱️ ainda não saiu
+      if(agora < horaSaida){
+        r.status = "Aguardando";
+        return;
+      }
+
+      // 🎯 velocidade por prioridade
+      let velocidade;
+
+      if(r.prioridade === 1) velocidade = 5; // urgente
+      else if(r.prioridade === 2) velocidade = 3;
+      else velocidade = 1;
+
+      if(r.pos < r.rota.length-1){
+
+        fim = false;
+
+        r.pos = Math.min(r.pos + velocidade, r.rota.length-1);
+
+        r.marker.setLatLng(r.rota[r.pos]);
+
+        r.status = "Em deslocamento";
+
+      } else {
+        r.status = "Chegou";
+      }
+
+    });
+
+    atualizarTabela();
+
+    if(fim){
+      clearInterval(loop);
+      console.log("Operação finalizada");
+    }
+
+  }, 200);
+}
+// ================= TABELA =================
+function atualizarTabela(){
+
+  const tbody = document.getElementById("tbody");
+  tbody.innerHTML = "";
+
+  let chegaram = 0;
+
+  reservistas.forEach(r=>{
+
+    if(r.status==="Chegou") chegaram++;
+
+    const perc = Math.round((r.pos/(r.rota.length-1))*100);
+
+    const tr = document.createElement("tr");
+
+    tr.className =
+      r.status==="Chegou" ? "ok" :
+      r.status==="Aguardando" ? "" :
+      r.status.includes("Erro") ? "erro" : "";
+
+    tr.innerHTML = `
+      <td>${r.cep}</td>
+      <td>${r.status}</td>
+      <td>${r.prioridade}</td>
+      <td>${r.hora_saida}</td>
+      <td>${perc}%</td>
+    `;
+
+    tbody.appendChild(tr);
+  });
+
+  document.getElementById("total").innerText = "Total: "+reservistas.length;
+  document.getElementById("chegaram").innerText = "Chegaram: "+chegaram;
+}
+</script>
+
+</body>
+</html>
