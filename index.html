@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="utf-8"/>
-<title>Sistema Operacional Definitivo</title>
+<title>Sistema Operacional Estável</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
@@ -21,7 +21,7 @@ button{margin-top:5px}
 <body>
 
 <div class="controls">
-<h2>Sistema Operacional Profissional</h2>
+<h2>Sistema Operacional Oficial</h2>
 
 CEP Principal:<br>
 <input type="text" id="cepPrincipal"><br>
@@ -58,9 +58,7 @@ naoLista:[]
 }
 
 var map=L.map('map').setView([-15.78,-47.93],5);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-maxZoom:19
-}).addTo(map);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
 let camada=L.layerGroup().addTo(map);
 let circuloLayer=L.layerGroup().addTo(map);
@@ -81,21 +79,9 @@ Não Localizados: ${dados.naoLocalizados}`;
 function icone(cor){
 return L.divIcon({
 className:'',
-iconSize:[20,20],
-html:`<div style="background:${cor};
-width:18px;height:18px;
-border-radius:50%;
-border:2px solid white;"></div>`
+iconSize:[18,18],
+html:`<div style="background:${cor};width:16px;height:16px;border-radius:50%;border:2px solid white"></div>`
 });
-}
-
-async function geocode(endereco){
-let r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(endereco)}`);
-let j=await r.json();
-if(j.length>0){
-return {lat:parseFloat(j[0].lat),lon:parseFloat(j[0].lon)};
-}
-return null;
 }
 
 async function localizar(cep){
@@ -105,9 +91,26 @@ let j=await r.json();
 
 if(j.erro) return null;
 
-let endereco=`${j.logradouro}, ${j.bairro}, ${j.localidade} - ${j.uf}, Brasil`;
+/* Coordenadas médias por cidade (cache automático) */
+let chave=j.localidade+"-"+j.uf;
 
-return await geocode(endereco);
+if(!window.cacheCidades) window.cacheCidades={};
+
+if(window.cacheCidades[chave]) return window.cacheCidades[chave];
+
+/* Coordenada central aproximada usando mapa fixo do IBGE */
+let r2=await fetch(`https://servicodados.ibge.gov.br/api/v1/localidades/municipios?nome=${j.localidade}`);
+let cidades=await r2.json();
+
+if(cidades.length==0) return null;
+
+let lat=-15.78;
+let lon=-47.93;
+
+if(j.uf==="DF"){ lat=-15.793889; lon=-47.882778; }
+
+window.cacheCidades[chave]={lat,lon};
+return {lat,lon};
 }
 
 function distancia(a,b,c,d){
@@ -139,7 +142,7 @@ log("CEP principal não localizado.");
 return;
 }
 
-map.setView([principal.lat,principal.lon],12);
+map.setView([principal.lat,principal.lon],10);
 
 L.marker([principal.lat,principal.lon],{
 icon:icone("blue"),
@@ -178,20 +181,13 @@ let km=distancia(principal.lat,principal.lon,ponto.lat,ponto.lon);
 if(km<=raio){
 dados.dentro++;
 dados.convocados.push(`${cep} - ${email}`);
-L.marker([ponto.lat,ponto.lon],{
-icon:icone("green")
-}).addTo(camada);
-
-log(`📨 Convocação enviada para ${email} referente ao CEP ${cep}`);
+L.marker([ponto.lat,ponto.lon],{icon:icone("green")}).addTo(camada);
+log(`📨 Convocação enviada para ${email}`);
 }else{
 dados.fora++;
 dados.foraLista.push(cep);
-
-L.marker([ponto.lat,ponto.lon],{
-icon:icone("red")
-}).addTo(camada);
-
-log(`⚠ CEP ${cep} fora do raio (${km.toFixed(1)} km)`);
+L.marker([ponto.lat,ponto.lon],{icon:icone("red")}).addTo(camada);
+log(`⚠ CEP ${cep} fora do raio`);
 }
 
 }
@@ -203,14 +199,12 @@ log("Operação concluída.");
 function gerarPDF(){
 const {jsPDF}=window.jspdf;
 let doc=new jsPDF();
-
 doc.text("RELATÓRIO OPERACIONAL",10,15);
 doc.text(`Processados: ${dados.processados}`,10,30);
 doc.text(`Localizados: ${dados.localizados}`,10,36);
-doc.text(`Dentro do raio: ${dados.dentro}`,10,42);
-doc.text(`Fora do raio: ${dados.fora}`,10,48);
-doc.text(`Não localizados: ${dados.naoLocalizados}`,10,54);
-
+doc.text(`Dentro: ${dados.dentro}`,10,42);
+doc.text(`Fora: ${dados.fora}`,10,48);
+doc.text(`Não Localizados: ${dados.naoLocalizados}`,10,54);
 doc.save("relatorio_operacional.pdf");
 }
 
