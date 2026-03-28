@@ -1,219 +1,200 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html>
 <head>
-<meta charset="UTF-8">
-<title>Sistema Operacional Brasil - Estável Final</title>
-
+<meta charset="utf-8" />
+<title>Sistema Operacional Avançado - Brasil</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
 <style>
-body { font-family: Arial; margin: 15px; }
-#map { height: 500px; margin-top: 15px; }
-#log {
-    max-height:200px;
-    overflow:auto;
-    background:#000;
-    color:#00ff00;
-    padding:10px;
-    font-size:12px;
-}
-input { width: 300px; }
+body { font-family: Arial; margin: 0; padding: 0; }
+#map { height: 600px; }
+.controls { padding: 10px; background: #f0f0f0; }
+textarea { width: 100%; height: 80px; }
+input { margin: 5px 0; }
+#log { background: black; color: #00ff00; padding: 10px; height: 150px; overflow-y: scroll; font-size: 12px; }
 </style>
 </head>
 <body>
 
-<h2>Sistema Operacional - Brasil</h2>
+<div class="controls">
+<h2>Sistema Operacional Avançado - Brasil</h2>
 
-CEP Principal:<br>
-<input type="text" id="principal" placeholder="Ex: 70040-010"><br><br>
+<label>CEP Principal:</label><br>
+<input type="text" id="cepPrincipal"><br>
 
-Raio (km):<br>
-<input type="number" id="raio" value="100"><br><br>
+<label>Raio (km):</label><br>
+<input type="number" id="raio" value="50"><br>
 
-CSV (CEP,Email):<br>
-<input type="file" id="arquivo"><br><br>
+<label>CSV (CEP,email):</label><br>
+<textarea id="csv"></textarea><br>
 
-<button onclick="processar()">Iniciar Operação</button>
-
-<h3 id="status"></h3>
+<button onclick="iniciar()">Iniciar Operação</button>
+</div>
 
 <div id="map"></div>
-
-<h3>Log Operacional</h3>
 <div id="log"></div>
 
 <script>
 
-let map = L.map('map').setView([-15.793889, -47.882778], 4);
+var map = L.map('map').setView([-15.7801, -47.9292], 6);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '© OpenStreetMap'
 }).addTo(map);
 
-let layer = L.layerGroup().addTo(map);
-
 function log(msg){
-    const div = document.getElementById("log");
-    div.innerHTML += msg + "<br>";
-    div.scrollTop = div.scrollHeight;
+    document.getElementById("log").innerHTML += msg + "<br>";
 }
 
-async function geocodificarCEP(cep){
-
-    cep = cep.replace(/\D/g,"");
-
-    if(cep.length !== 8){
-        return { invalido:true };
-    }
-
-    try{
-        const resp = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
-        const dados = await resp.json();
-
-        if(dados.erro){
-            return { invalido:true };
-        }
-
-        // tenta endereço completo
-        const consulta1 = `${dados.logradouro || ""}, ${dados.localidade}, ${dados.uf}, Brasil`;
-        const url1 = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&q=${encodeURIComponent(consulta1)}`;
-        const r1 = await fetch(url1);
-        const j1 = await r1.json();
-
-        if(j1.length > 0){
-            return {
-                lat: parseFloat(j1[0].lat),
-                lon: parseFloat(j1[0].lon),
-                fallback:false,
-                invalido:false
-            };
-        }
-
-        // fallback por cidade
-        const consulta2 = `${dados.localidade}, ${dados.uf}, Brasil`;
-        const url2 = `https://nominatim.openstreetmap.org/search?format=json&countrycodes=br&q=${encodeURIComponent(consulta2)}`;
-        const r2 = await fetch(url2);
-        const j2 = await r2.json();
-
-        if(j2.length > 0){
-            return {
-                lat: parseFloat(j2[0].lat),
-                lon: parseFloat(j2[0].lon),
-                fallback:true,
-                invalido:false
-            };
-        }
-
-        return { invalido:true };
-
-    }catch(e){
-        return { invalido:true };
-    }
+function criarIcone(cor){
+    return L.divIcon({
+        className: '',
+        html: `<div style="background:${cor};width:18px;height:18px;border-radius:50%;border:2px solid white;"></div>`
+    });
 }
 
-async function processar(){
+async function geocode(endereco){
+    let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(endereco)}`;
+    let res = await fetch(url);
+    let data = await res.json();
+    if(data.length > 0){
+        return {
+            lat: parseFloat(data[0].lat),
+            lon: parseFloat(data[0].lon)
+        };
+    }
+    return null;
+}
 
-    layer.clearLayers();
-    document.getElementById("log").innerHTML="";
-    document.getElementById("status").innerHTML="Processando...";
+async function localizarCEP(cep){
 
-    const cepPrincipal = document.getElementById("principal").value.trim();
-    const raio = parseFloat(document.getElementById("raio").value);
-    const arquivo = document.getElementById("arquivo").files[0];
+    log("Consultando ViaCEP: " + cep);
 
-    if(!cepPrincipal || !arquivo){
-        alert("Preencha CEP principal e CSV.");
+    let via = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+    let dados = await via.json();
+
+    if(dados.erro){
+        log("CEP inválido: " + cep);
+        return {status:"nao_localizado"};
+    }
+
+    let enderecoCompleto = "";
+
+    if(dados.logradouro){
+        enderecoCompleto = `${dados.logradouro}, ${dados.bairro}, ${dados.localidade} - ${dados.uf}, Brasil`;
+    } else if(dados.bairro){
+        enderecoCompleto = `${dados.bairro}, ${dados.localidade} - ${dados.uf}, Brasil`;
+    } else {
+        enderecoCompleto = `${dados.localidade} - ${dados.uf}, Brasil`;
+    }
+
+    log("Geocodificando: " + enderecoCompleto);
+
+    let geo = await geocode(enderecoCompleto);
+
+    if(geo){
+        let aproximado = !dados.logradouro;
+        return {
+            lat: geo.lat,
+            lon: geo.lon,
+            status: aproximado ? "aproximado" : "exato",
+            cidade: dados.localidade,
+            uf: dados.uf
+        };
+    }
+
+    log("Falha total no CEP: " + cep);
+    return {status:"nao_localizado"};
+}
+
+function calcularDistancia(lat1, lon1, lat2, lon2){
+    const R = 6371;
+    const dLat = (lat2-lat1) * Math.PI/180;
+    const dLon = (lon2-lon1) * Math.PI/180;
+    const a =
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1*Math.PI/180) *
+        Math.cos(lat2*Math.PI/180) *
+        Math.sin(dLon/2) *
+        Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    return R * c;
+}
+
+async function iniciar(){
+
+    document.getElementById("log").innerHTML = "";
+
+    let cepPrincipal = document.getElementById("cepPrincipal").value;
+    let raio = parseFloat(document.getElementById("raio").value);
+    let linhas = document.getElementById("csv").value.trim().split("\n");
+
+    map.eachLayer(function(layer){
+        if(layer instanceof L.Marker || layer instanceof L.Circle){
+            map.removeLayer(layer);
+        }
+    });
+
+    let principal = await localizarCEP(cepPrincipal);
+
+    if(principal.status === "nao_localizado"){
+        log("CEP Principal não localizado.");
         return;
     }
 
-    const centro = await geocodificarCEP(cepPrincipal);
+    let centro = [principal.lat, principal.lon];
 
-    if(!centro || centro.invalido){
-        alert("CEP principal inválido.");
-        return;
-    }
+    map.setView(centro, 10);
 
-    // MARCADOR PRINCIPAL (AZUL)
-    L.marker([centro.lat, centro.lon])
-        .addTo(layer)
-        .bindPopup("📍 CEP Principal")
-        .openPopup();
+    L.marker(centro, {icon: criarIcone("blue")})
+        .addTo(map)
+        .bindPopup("CEP Principal");
 
-    L.circle([centro.lat, centro.lon],{
-        radius: raio * 1000,
-        color:"blue",
-        fillOpacity:0.05
-    }).addTo(layer);
+    L.circle(centro, {radius: raio * 1000}).addTo(map);
 
-    map.setView([centro.lat, centro.lon], 9);
+    for(let linha of linhas){
 
-    const texto = await arquivo.text();
-    const linhas = texto.split("\n").map(l=>l.trim()).filter(l=>l!="");
+        let partes = linha.split(",");
+        let cep = partes[0].trim();
+        let email = partes[1] ? partes[1].trim() : "";
 
-    let processados=0;
-    let convocados=0;
+        let ponto = await localizarCEP(cep);
 
-    for(const linha of linhas){
-
-        if(linha.toLowerCase().includes("cep")) continue;
-
-        const partes = linha.split(",");
-        if(partes.length<2) continue;
-
-        const cep = partes[0].trim();
-        const email = partes[1].trim();
-
-        processados++;
-
-        const coords = await geocodificarCEP(cep);
-
-        if(!coords || coords.invalido){
-
-            log(`❌ CEP INVÁLIDO/NÃO LOCALIZADO: ${cep}`);
-
-            L.circleMarker(map.getCenter(),{
-                radius:8,
-                fillColor:"gray",
-                color:"#000",
-                fillOpacity:0.9
-            }).addTo(layer)
-              .bindPopup(`CEP INVÁLIDO: ${cep}`);
-
+        if(ponto.status === "nao_localizado"){
+            log("CEP não localizado: " + cep);
             continue;
         }
 
-        const distancia = map.distance(
-            [centro.lat,centro.lon],
-            [coords.lat,coords.lon]
-        )/1000;
+        let distancia = calcularDistancia(
+            principal.lat, principal.lon,
+            ponto.lat, ponto.lon
+        );
 
-        let cor;
+        let cor = "";
+        let mensagem = "";
 
         if(distancia <= raio){
+            if(ponto.status === "aproximado"){
+                cor = "yellow";
+            } else {
+                cor = "green";
+            }
 
-            convocados++;
-
-            cor = coords.fallback ? "yellow" : "green";
-
-            log(`📨 ${email} → Você está sendo convocado. Apresente-se no ponto do CEP principal ${cepPrincipal}.`);
+            mensagem = "Você está sendo convocado. Apresente-se no ponto do CEP principal.";
+            log("CONVOCADO → " + cep + " | " + distancia.toFixed(2) + " km");
+            log("Mensagem enviada para " + email + ": " + mensagem);
 
         } else {
-
-            cor = coords.fallback ? "orange" : "red";
+            cor = "red";
+            log("Fora do raio → " + cep + " | " + distancia.toFixed(2) + " km");
         }
 
-        L.circleMarker([coords.lat,coords.lon],{
-            radius:8,
-            fillColor:cor,
-            color:"#000",
-            fillOpacity:0.9
-        }).addTo(layer)
-          .bindPopup(`${cep} - ${distancia.toFixed(2)} km`);
+        L.marker([ponto.lat, ponto.lon], {icon: criarIcone(cor)})
+            .addTo(map)
+            .bindPopup(`CEP: ${cep}<br>${distancia.toFixed(2)} km`);
     }
 
-    document.getElementById("status").innerHTML =
-        `Processados: ${processados} | Convocados: ${convocados}`;
+    log("Operação concluída.");
 }
 
 </script>
