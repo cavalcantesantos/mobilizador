@@ -7,28 +7,21 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
+<!-- Biblioteca para exportar mapa como imagem -->
+<script src="https://unpkg.com/leaflet-image/leaflet-image.js"></script>
+
+<!-- Biblioteca PDF -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
 <style>
 body { font-family: Arial; margin: 0; padding: 0; }
-#map { height: 600px; }
+#map { height: 500px; }
 .controls { padding: 10px; background: #f0f0f0; }
 textarea { width: 100%; height: 100px; }
 input { margin: 5px 0; }
-
-#painel {
-    background:#222;
-    color:white;
-    padding:10px;
-    font-weight:bold;
-}
-
-#log {
-    background: black;
-    color: #00ff00;
-    padding: 10px;
-    height: 180px;
-    overflow-y: auto;
-    font-size: 12px;
-}
+button { margin-top:5px; }
+#painel { background:#222; color:white; padding:10px; font-weight:bold; }
+#log { background:black; color:#00ff00; padding:10px; height:150px; overflow:auto; font-size:12px; }
 </style>
 </head>
 
@@ -47,19 +40,26 @@ input { margin: 5px 0; }
 <textarea id="csv"></textarea><br>
 
 <button onclick="iniciar()">Iniciar Operação</button>
+<button onclick="gerarPDF()">Gerar Relatório PDF</button>
 </div>
 
-<div id="painel">
-Aguardando operação...
-</div>
-
+<div id="painel">Aguardando operação...</div>
 <div id="map"></div>
 <div id="log"></div>
 
 <script>
 
-var map = L.map('map').setView([-15.7801, -47.9292], 5);
+let dadosOperacao = {
+    processados:0,
+    localizados:0,
+    dentro:0,
+    fora:0,
+    convocados:[],
+    foraLista:[],
+    naoLocalizados:[]
+};
 
+var map = L.map('map').setView([-15.7801, -47.9292], 5);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
 var camadaMarcadores = L.layerGroup().addTo(map);
@@ -69,26 +69,20 @@ function log(msg){
     document.getElementById("log").innerHTML += msg + "<br>";
 }
 
-function atualizarPainel(dados){
+function atualizarPainel(){
     document.getElementById("painel").innerHTML = `
-    CEPs Processados: ${dados.processados} |
-    Localizados: ${dados.localizados} |
-    Dentro do Raio: ${dados.dentro} |
-    Fora do Raio: ${dados.fora} |
-    Convocados: ${dados.convocados}
+    Processados: ${dadosOperacao.processados} |
+    Localizados: ${dadosOperacao.localizados} |
+    Dentro do Raio: ${dadosOperacao.dentro} |
+    Fora do Raio: ${dadosOperacao.fora} |
+    Convocados: ${dadosOperacao.convocados.length}
     `;
 }
 
 function criarIcone(cor){
     return L.divIcon({
-        className: '',
-        html: `<div style="
-            background:${cor};
-            width:20px;
-            height:20px;
-            border-radius:50%;
-            border:3px solid white;
-        "></div>`
+        className:'',
+        html:`<div style="background:${cor};width:18px;height:18px;border-radius:50%;border:2px solid white;"></div>`
     });
 }
 
@@ -96,154 +90,150 @@ async function geocode(endereco){
     let url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(endereco)}`;
     let res = await fetch(url);
     let data = await res.json();
-    if(data.length > 0){
-        return {
-            lat: parseFloat(data[0].lat),
-            lon: parseFloat(data[0].lon)
-        };
+    if(data.length>0){
+        return {lat:parseFloat(data[0].lat),lon:parseFloat(data[0].lon)};
     }
     return null;
 }
 
 async function localizarCEP(cep){
-    try{
-        let via = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
-        let dados = await via.json();
-        if(dados.erro) return {status:"nao_localizado"};
+    let via = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+    let dados = await via.json();
+    if(dados.erro) return {status:"nao_localizado"};
 
-        let tentativas = [];
-
-        if(dados.logradouro)
-            tentativas.push(`${dados.logradouro}, ${dados.localidade} - ${dados.uf}, Brasil`);
-
-        if(dados.bairro)
-            tentativas.push(`${dados.bairro}, ${dados.localidade} - ${dados.uf}, Brasil`);
-
-        tentativas.push(`${dados.localidade} - ${dados.uf}, Brasil`);
-
-        for(let endereco of tentativas){
-            let geo = await geocode(endereco);
-            if(geo){
-                let aproximado =
-                    !dados.logradouro ||
-                    cep.endsWith("000") ||
-                    cep.endsWith("900");
-
-                return {
-                    lat: geo.lat,
-                    lon: geo.lon,
-                    status: aproximado ? "aproximado" : "exato"
-                };
-            }
-        }
-
-        return {status:"nao_localizado"};
-
-    } catch(e){
-        return {status:"nao_localizado"};
+    let endereco = `${dados.localidade} - ${dados.uf}, Brasil`;
+    let geo = await geocode(endereco);
+    if(geo){
+        return {lat:geo.lat, lon:geo.lon, status:"ok"};
     }
+    return {status:"nao_localizado"};
 }
 
 function calcularDistancia(lat1, lon1, lat2, lon2){
-    const R = 6371;
-    const dLat = (lat2-lat1) * Math.PI/180;
-    const dLon = (lon2-lon1) * Math.PI/180;
-    const a =
-        Math.sin(dLat/2) * Math.sin(dLat/2) +
-        Math.cos(lat1*Math.PI/180) *
-        Math.cos(lat2*Math.PI/180) *
-        Math.sin(dLon/2) *
-        Math.sin(dLon/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c;
+    const R=6371;
+    const dLat=(lat2-lat1)*Math.PI/180;
+    const dLon=(lon2-lon1)*Math.PI/180;
+    const a=Math.sin(dLat/2)**2+
+            Math.cos(lat1*Math.PI/180)*
+            Math.cos(lat2*Math.PI/180)*
+            Math.sin(dLon/2)**2;
+    return R*(2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a)));
 }
 
 async function iniciar(){
 
-    document.getElementById("log").innerHTML = "";
+    document.getElementById("log").innerHTML="";
     camadaMarcadores.clearLayers();
     camadaCirculo.clearLayers();
 
-    let estat = {
+    dadosOperacao={
         processados:0,
         localizados:0,
         dentro:0,
         fora:0,
-        convocados:0
+        convocados:[],
+        foraLista:[],
+        naoLocalizados:[]
     };
 
-    let cepPrincipal = document.getElementById("cepPrincipal").value.trim();
-    let raio = parseFloat(document.getElementById("raio").value);
-    let linhas = document.getElementById("csv").value.trim().split("\n");
+    let cepPrincipal=document.getElementById("cepPrincipal").value.trim();
+    let raio=parseFloat(document.getElementById("raio").value);
+    let linhas=document.getElementById("csv").value.trim().split("\n");
 
-    let principal = await localizarCEP(cepPrincipal);
+    let principal=await localizarCEP(cepPrincipal);
+    if(principal.status==="nao_localizado"){ log("Principal não localizado"); return; }
 
-    if(principal.status === "nao_localizado"){
-        log("CEP Principal não localizado.");
-        return;
-    }
+    let centro=[principal.lat,principal.lon];
+    map.setView(centro,11);
 
-    let centro = [principal.lat, principal.lon];
-    map.setView(centro, 11);
-
-    L.marker(centro, {icon: criarIcone("blue")})
-        .bindPopup("CEP Principal")
-        .addTo(camadaMarcadores);
-
-    L.circle(centro, {
-        radius: raio * 1000,
-        color: "blue",
-        fill:false
-    }).addTo(camadaCirculo);
+    L.marker(centro,{icon:criarIcone("blue")}).addTo(camadaMarcadores);
+    L.circle(centro,{radius:raio*1000,color:"blue",fill:false}).addTo(camadaCirculo);
 
     for(let linha of linhas){
-
         if(!linha.includes(",")) continue;
 
-        estat.processados++;
+        dadosOperacao.processados++;
 
-        let partes = linha.split(",");
-        let cep = partes[0].trim();
-        let email = partes[1].trim();
+        let [cep,email]=linha.split(",");
+        cep=cep.trim();
+        email=email.trim();
 
-        let ponto = await localizarCEP(cep);
-
-        if(ponto.status === "nao_localizado"){
-            log("CEP não localizado: " + cep);
+        let ponto=await localizarCEP(cep);
+        if(ponto.status==="nao_localizado"){
+            dadosOperacao.naoLocalizados.push(cep);
             continue;
         }
 
-        estat.localizados++;
+        dadosOperacao.localizados++;
 
-        let distancia = calcularDistancia(
-            principal.lat, principal.lon,
-            ponto.lat, ponto.lon
-        );
+        let distancia=calcularDistancia(principal.lat,principal.lon,ponto.lat,ponto.lon);
 
         let cor;
 
-        if(distancia <= raio){
-            estat.dentro++;
-            estat.convocados++;
-            cor = ponto.status === "aproximado" ? "yellow" : "green";
-            log("CONVOCADO → " + cep + " | " + distancia.toFixed(2) + " km");
-            log("Mensagem enviada para " + email);
-        } else {
-            estat.fora++;
-            cor = "red";
-            log("FORA DO RAIO → " + cep + " | " + distancia.toFixed(2) + " km");
+        if(distancia<=raio){
+            dadosOperacao.dentro++;
+            dadosOperacao.convocados.push(`${cep} (${email})`);
+            cor="green";
+        }else{
+            dadosOperacao.fora++;
+            dadosOperacao.foraLista.push(cep);
+            cor="red";
         }
 
-        L.marker([ponto.lat, ponto.lon], {icon: criarIcone(cor)})
-            .bindPopup(`CEP: ${cep}<br>${distancia.toFixed(2)} km`)
-            .addTo(camadaMarcadores);
+        L.marker([ponto.lat,ponto.lon],{icon:criarIcone(cor)}).addTo(camadaMarcadores);
     }
 
-    atualizarPainel(estat);
+    atualizarPainel();
     log("Operação concluída.");
 }
 
-</script>
+async function gerarPDF(){
 
+    const { jsPDF } = window.jspdf;
+    let doc = new jsPDF();
+
+    doc.setFontSize(16);
+    doc.text("RELATÓRIO OPERACIONAL", 10, 15);
+
+    doc.setFontSize(10);
+    doc.text(`Processados: ${dadosOperacao.processados}`,10,30);
+    doc.text(`Localizados: ${dadosOperacao.localizados}`,10,36);
+    doc.text(`Dentro do Raio: ${dadosOperacao.dentro}`,10,42);
+    doc.text(`Fora do Raio: ${dadosOperacao.fora}`,10,48);
+
+    let y=60;
+    doc.text("CEPs Convocados:",10,y);
+    y+=6;
+    dadosOperacao.convocados.forEach(c=>{
+        doc.text("- "+c,10,y);
+        y+=6;
+    });
+
+    y+=4;
+    doc.text("CEPs Fora do Raio:",10,y);
+    y+=6;
+    dadosOperacao.foraLista.forEach(c=>{
+        doc.text("- "+c,10,y);
+        y+=6;
+    });
+
+    y+=4;
+    doc.text("CEPs Não Localizados:",10,y);
+    y+=6;
+    dadosOperacao.naoLocalizados.forEach(c=>{
+        doc.text("- "+c,10,y);
+        y+=6;
+    });
+
+    leafletImage(map,function(err,canvas){
+        let imgData=canvas.toDataURL("image/png");
+        doc.addPage();
+        doc.text("Mapa Operacional",10,15);
+        doc.addImage(imgData,"PNG",10,20,180,120);
+        doc.save("relatorio_operacional.pdf");
+    });
+}
+
+</script>
 </body>
 </html>
