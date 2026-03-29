@@ -199,7 +199,7 @@ let ajustado=ajustarCoordenada(lat,lon);
 
 if(km<=raio){
 dados.dentro++;
-let mensagem=`${email} (CEP ${cep}) → você está sendo convocado. Compareça no endereço do CEP principal e mostre o CEP principal (${cepPrincipal}) para referência.`;
+let mensagem=`${email} (CEP ${cep}) → você está sendo convocado. Compareça no endereço do CEP principal`;
 dados.convocados.push(mensagem);
 
 L.marker([ajustado.lat,ajustado.lon],{
