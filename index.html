@@ -1,132 +1,10 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8"/>
-<title>Sistema Operacional Público 2.0</title>
-
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-
-<style>
-body{font-family:Arial;margin:0;background:#f4f6f9}
-#map{height:500px}
-.controls{padding:15px;background:white;box-shadow:0 2px 6px rgba(0,0,0,0.1)}
-textarea{width:100%;height:120px}
-#painel{background:#111;color:#fff;padding:10px;font-weight:bold}
-#log{background:#000;color:#00ff00;height:180px;overflow:auto;padding:10px;font-size:12px}
-button{margin-top:5px;padding:6px 10px;cursor:pointer}
-input{margin-bottom:5px;width:100%;padding:4px}
-</style>
-</head>
-<body>
-
-<div class="controls">
-<h2>Sistema Operacional Público 2.0</h2>
-
-CEP Principal:
-<input type="text" id="cepPrincipal" placeholder="Ex: 70150-900">
-
-Latitude Base:
-<input type="number" id="latBase" step="0.000001" value="-15.793889">
-
-Longitude Base:
-<input type="number" id="lonBase" step="0.000001" value="-47.882778">
-
-Raio (km):
-<input type="number" id="raio" value="50">
-
-CSV (cep,email,lat,lon):
-<textarea id="csv"></textarea>
-
-<button onclick="sistema.iniciar()">Iniciar Operação</button>
-<button onclick="sistema.gerarPDF()">Gerar Relatório PDF</button>
-<button onclick="sistema.limparLog()">Limpar Log</button>
-</div>
-
-<div id="painel">Aguardando...</div>
-<div id="map"></div>
-<div id="log"></div>
-
-<script>
-
-class SistemaOperacional {
-
-constructor(){
-this.resetar();
-this.map=L.map('map').setView([-15.79,-47.88],11);
-
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-maxZoom:19
-}).addTo(this.map);
-
-this.camada=L.layerGroup().addTo(this.map);
-}
-
-resetar(){
-this.dados={
-processados:0,
-dentro:0,
-fora:0,
-convocados:[],
-foraLista:[]
-};
-this.coordenadasUsadas={};
-}
-
-icone(cor){
-return L.divIcon({
-className:'',
-iconSize:[18,18],
-html:`<div style="background:${cor};width:16px;height:16px;border-radius:50%;border:2px solid white"></div>`
-});
-}
-
-distancia(a,b,c,d){
-const R=6371;
-let dLat=(c-a)*Math.PI/180;
-let dLon=(d-b)*Math.PI/180;
-let x=Math.sin(dLat/2)**2+
-Math.cos(a*Math.PI/180)*
-Math.cos(c*Math.PI/180)*
-Math.sin(dLon/2)**2;
-return R*(2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x)));
-}
-
-log(msg){
-let linha=document.createElement("div");
-linha.textContent=msg;
-document.getElementById("log").appendChild(linha);
-}
-
-limparLog(){
-document.getElementById("log").innerHTML="";
-}
-
-atualizarPainel(){
-document.getElementById("painel").textContent=
-`Processados: ${this.dados.processados} | Dentro: ${this.dados.dentro} | Fora: ${this.dados.fora}`;
-}
-
-ajustarCoordenada(lat,lon){
-let chave=lat+","+lon;
-if(!this.coordenadasUsadas[chave]){
-this.coordenadasUsadas[chave]=1;
-return{lat,lon};
-}else{
-let offset=this.coordenadasUsadas[chave]*0.0005;
-this.coordenadasUsadas[chave]++;
-return{lat:lat+offset,lon:lon+offset};
-}
-}
-
 iniciar(){
 
 this.resetar();
 this.limparLog();
 this.camada.clearLayers();
 
-let cepPrincipal=document.getElementById("cepPrincipal").value || "NÃO INFORMADO";
+let cepPrincipal=document.getElementById("cepPrincipal").value;
 let latBase=parseFloat(document.getElementById("latBase").value);
 let lonBase=parseFloat(document.getElementById("lonBase").value);
 let raio=parseFloat(document.getElementById("raio").value);
@@ -138,27 +16,37 @@ return;
 
 this.map.setView([latBase,lonBase],12);
 
+// 🔵 CEP PRINCIPAL COM PRIORIDADE VISUAL
 L.marker([latBase,lonBase],{
-icon:this.icone("blue"),
+icon:this.icone("#007bff"),
 zIndexOffset:1000
-}).addTo(this.camada);
+}).addTo(this.camada).bindPopup("CEP Principal: "+cepPrincipal);
 
 L.circle([latBase,lonBase],{
 radius:raio*1000,
-color:"blue",
+color:"#007bff",
 fill:false
 }).addTo(this.camada);
 
-let linhas=document.getElementById("csv").value.trim().split("\n");
-let inicio=0;
+let textoCSV=document.getElementById("csv").value.trim();
 
-if(linhas[0].toLowerCase().includes("cep")){
+if(!textoCSV){
+this.log("Nenhum CSV inserido.");
+this.atualizarKPIs();
+return;
+}
+
+let linhas=textoCSV.split("\n");
+
+// Detecta cabeçalho corretamente
+let inicio=0;
+if(linhas[0] && linhas[0].toLowerCase().includes("cep")){
 inicio=1;
 }
 
 for(let i=inicio;i<linhas.length;i++){
 
-if(!linhas[i]) continue;
+if(!linhas[i].trim()) continue;
 
 let partes=linhas[i].split(",");
 if(partes.length<4) continue;
@@ -169,7 +57,7 @@ let lat=parseFloat(partes[2]);
 let lon=parseFloat(partes[3]);
 
 if(isNaN(lat)||isNaN(lon)){
-this.log(`❌ Coordenada inválida no CEP ${cep}`);
+this.log("Coordenada inválida no CEP "+cep);
 continue;
 }
 
@@ -180,63 +68,25 @@ let ajustado=this.ajustarCoordenada(lat,lon);
 
 if(km<=raio){
 this.dados.dentro++;
-let mensagem=`${email} (CEP ${cep}) → você está sendo convocado. Compareça no endereço do CEP principal (${cepPrincipal}) e mostre o CEP principal para referência.`;
-this.dados.convocados.push(mensagem);
-L.marker([ajustado.lat,ajustado.lon],{icon:this.icone("green")}).addTo(this.camada);
-this.log("📨 "+mensagem);
+L.marker([ajustado.lat,ajustado.lon],{
+icon:this.icone("#28a745")
+}).addTo(this.camada).bindPopup("Convocado: "+cep);
+this.log("CONVOCADO: "+email+" - CEP "+cep);
 }else{
 this.dados.fora++;
-this.dados.foraLista.push(cep);
-L.marker([ajustado.lat,ajustado.lon],{icon:this.icone("red")}).addTo(this.camada);
-this.log(`⚠ CEP ${cep} fora do raio`);
+L.marker([ajustado.lat,ajustado.lon],{
+icon:this.icone("#dc3545")
+}).addTo(this.camada).bindPopup("Fora do raio: "+cep);
+this.log("FORA DO RAIO: "+cep);
 }
 
 }
 
+// Ajuste automático de zoom
 if(this.camada.getLayers().length>0){
 this.map.fitBounds(this.camada.getBounds());
 }
 
-this.atualizarPainel();
-this.log("Operação concluída.");
+this.atualizarKPIs();
+this.log("Operação finalizada.");
 }
-
-gerarPDF(){
-
-const{jsPDF}=window.jspdf;
-let doc=new jsPDF();
-
-let agora=new Date();
-
-doc.setFontSize(16);
-doc.text("RELATÓRIO OPERACIONAL",10,15);
-
-doc.setFontSize(11);
-doc.text(`Data: ${agora.toLocaleDateString()}`,10,30);
-doc.text(`Hora: ${agora.toLocaleTimeString()}`,10,36);
-doc.text(`CEP Principal: ${document.getElementById("cepPrincipal").value}`,10,42);
-
-doc.text(`Processados: ${this.dados.processados}`,10,52);
-doc.text(`Dentro do raio: ${this.dados.dentro}`,10,58);
-doc.text(`Fora do raio: ${this.dados.fora}`,10,64);
-
-let y=75;
-doc.text("Convocados:",10,y);
-y+=6;
-
-this.dados.convocados.forEach(c=>{
-doc.text("- "+c,10,y);
-y+=6;
-if(y>280){doc.addPage();y=20;}
-});
-
-doc.save("relatorio_operacional.pdf");
-}
-
-}
-
-const sistema=new SistemaOperacional();
-
-</script>
-</body>
-</html>
