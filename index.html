@@ -160,62 +160,61 @@ color:"#007bff",
 fill:false
 }).addTo(camada);
 
-let textoCSV=document.getElementById("csv").value.trim();
+let textoCSV = document.getElementById("csv").value;
 
 if(!textoCSV){
 atualizarKPIs();
 return;
 }
 
-let linhas=textoCSV.split("\n");
+// Remove caracteres invisíveis
+textoCSV = textoCSV.replace(/\r/g,"").trim();
 
-// Detecta cabeçalho
-let inicio=0;
-if(linhas[0] && linhas[0].toLowerCase().includes("cep")){
-inicio=1;
+let linhas = textoCSV.split("\n").filter(l => l.trim() !== "");
+
+// Remove cabeçalho automaticamente se existir
+if(linhas.length > 0 && linhas[0].toLowerCase().includes("cep")){
+linhas.shift();
 }
 
-for(let i=inicio;i<linhas.length;i++){
+linhas.forEach(linha => {
 
-if(!linhas[i].trim()) continue;
+let partes = linha.split(",");
+if(partes.length < 4) return;
 
-let partes=linhas[i].split(",");
-if(partes.length<4) continue;
+let cep = partes[0].trim();
+let email = partes[1].trim();
+let lat = parseFloat(partes[2]);
+let lon = parseFloat(partes[3]);
 
-let cep=partes[0].trim();
-let email=partes[1].trim();
-let lat=parseFloat(partes[2]);
-let lon=parseFloat(partes[3]);
-
-if(isNaN(lat)||isNaN(lon)){
-log("Coordenada inválida no CEP "+cep);
-continue;
-}
+if(isNaN(lat) || isNaN(lon)) return;
 
 dados.processados++;
 
-let km=distancia(latBase,lonBase,lat,lon);
-let ajustado=ajustarCoordenada(lat,lon);
+let km = distancia(latBase,lonBase,lat,lon);
+let ajustado = ajustarCoordenada(lat,lon);
 
-if(km<=raio){
+if(km <= raio){
 dados.dentro++;
-let mensagem=`${email} (CEP ${cep}) → você está sendo convocado. Compareça no endereço do CEP principal`;
+
+let mensagem = `${email} (CEP ${cep}) → você está sendo convocado. Compareça no endereço do CEP principal e mostre o CEP principal.`;
+
 dados.convocados.push(mensagem);
 
 L.marker([ajustado.lat,ajustado.lon],{
 icon:icone("#28a745")
-}).addTo(camada).bindPopup(mensagem);
+}).addTo(camada);
 
-log("📨 "+mensagem);
 }else{
 dados.fora++;
+
 L.marker([ajustado.lat,ajustado.lon],{
 icon:icone("#dc3545")
-}).addTo(camada).bindPopup("Fora do raio: "+cep);
-log("⚠ CEP "+cep+" fora do raio");
+}).addTo(camada);
 }
 
-}
+});
+
 
 if(camada.getLayers().length>0){
 map.fitBounds(camada.getBounds());
