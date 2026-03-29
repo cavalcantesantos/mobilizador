@@ -6,10 +6,7 @@
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 
-<!-- EmailJS (opcional) -->
 <script src="https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js"></script>
-
-<!-- PDF -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <style>
@@ -37,6 +34,12 @@ button {
     overflow:auto;
     padding:5px;
     font-size:12px;
+}
+
+.leaflet-tooltip {
+    background: black;
+    color: white;
+    border: none;
 }
 </style>
 </head>
@@ -90,7 +93,6 @@ Fora: <span id="fora">0</span>
 
 <script>
 
-// CONFIG EMAIL (preencha depois)
 const EMAIL_CONFIG = {
     publicKey: "SUA_PUBLIC_KEY",
     serviceID: "SEU_SERVICE_ID",
@@ -101,6 +103,7 @@ let emailAtivo = false;
 let resultados = [];
 
 let map = L.map('map').setView([-15.8129, -47.9126], 11);
+
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
 function log(msg){
@@ -134,32 +137,7 @@ async function geocode(end){
     return null;
 }
 
-// EMAIL SEGURO
-async function enviarEmail(nome, email){
-
-    if(!emailAtivo){
-        log("Email desativado");
-        return;
-    }
-
-    try{
-        await emailjs.send(
-            EMAIL_CONFIG.serviceID,
-            EMAIL_CONFIG.templateID,
-            {
-                to_email: email,
-                message: "Você foi convocado. Apresente-se no local indicado nesse email."
-            }
-        );
-        log("Email enviado: " + nome);
-    }catch(e){
-        log("Erro email: " + nome);
-    }
-}
-
-// INIT EMAIL
 function iniciarEmail(){
-
     try{
         if(document.getElementById("usarEmail").checked){
             emailAtivo = true;
@@ -178,6 +156,24 @@ function iniciarEmail(){
     }catch(e){
         log("Falha ao iniciar email");
         emailAtivo = false;
+    }
+}
+
+async function enviarEmail(nome, email){
+    if(!emailAtivo) return;
+
+    try{
+        await emailjs.send(
+            EMAIL_CONFIG.serviceID,
+            EMAIL_CONFIG.templateID,
+            {
+                to_email: email,
+                message: "Você foi convocado. Apresente-se no local indicado nesse email."
+            }
+        );
+        log("Email enviado: " + nome);
+    }catch(e){
+        log("Erro email: " + nome);
     }
 }
 
@@ -200,27 +196,11 @@ async function iniciar(){
 
     L.marker([latBase, lonBase]).addTo(map).bindPopup("Base");
 
-    let marcador = L.circleMarker([lat, lon], {
-    color: dentroRaio ? "green" : "red",
-    radius: 6
-}).addTo(map);
-
-// TEXTO RESUMIDO (hover)
-marcador.bindTooltip(
-    `${nome} | ${dist.toFixed(2)} km | ${dentroRaio ? "Dentro" : "Fora"}`,
-    {
-        permanent: false,
-        direction: "top"
-    }
-);
-
-// POPUP COMPLETO (clique)
-marcador.bindPopup(`
-    <b>${nome}</b><br>
-    Email: ${email}<br>
-    Distância: ${dist.toFixed(2)} km<br>
-    Status: <b>${dentroRaio ? "Dentro do raio" : "Fora do raio"}</b>
-`);
+    L.circle([latBase, lonBase], {
+        radius: raio * 1000,
+        color: "blue",
+        fillOpacity: 0.1
+    }).addTo(map);
 
     let linhas = document.getElementById("csv").value.split("\n");
 
@@ -235,15 +215,11 @@ marcador.bindPopup(`
         let email = p[1];
         let lat=null, lon=null;
 
-        log("Processando: " + nome);
-
-        // LAT LON
         if(p.length >= 4){
             lat = parseFloat(p[2]);
             lon = parseFloat(p[3]);
         }
 
-        // ENDEREÇO / CEP
         if(!lat || !lon){
             let coord = await geocode(p[2]);
             if(coord){
@@ -260,19 +236,21 @@ marcador.bindPopup(`
             if(dentroRaio){
                 dentro++;
                 await enviarEmail(nome, email);
-            }else{
+            } else {
                 fora++;
             }
 
-            let marcador = L.circleMarker([lat, lon], {
-    color: dentroRaio ? "green" : "red"
-}).addTo(map);
+            // ✅ MARCADOR + TOOLTIP DEFINITIVO
+            const marcador = L.circleMarker([lat, lon], {
+                color: dentroRaio ? "green" : "red",
+                radius: 6
+            });
 
-// TOOLTIP SIMPLES (SEM RISCO)
-marcador.bindTooltip(
-    nome + " | " + dist.toFixed(2) + " km",
-    { direction: "top" }
-);
+            marcador.addTo(map);
+
+            marcador.bindTooltip(
+                nome + " | " + dist.toFixed(2) + " km | " + (dentroRaio ? "Dentro" : "Fora")
+            ).openTooltip();
 
             resultados.push({
                 nome, email,
@@ -280,7 +258,7 @@ marcador.bindTooltip(
                 status: dentroRaio ? "Dentro" : "Fora"
             });
 
-        }else{
+        } else {
             log("Erro localização: " + nome);
         }
 
@@ -294,7 +272,6 @@ marcador.bindTooltip(
     log("Finalizado.");
 }
 
-// PDF
 function gerarPDF(){
 
     const { jsPDF } = window.jspdf;
