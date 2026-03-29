@@ -264,9 +264,15 @@ marcador.bindPopup(`
                 fora++;
             }
 
-            L.circleMarker([lat, lon], {
-                color: dentroRaio ? "green" : "red"
-            }).addTo(map);
+            let marcador = L.circleMarker([lat, lon], {
+    color: dentroRaio ? "green" : "red"
+}).addTo(map);
+
+// TOOLTIP SIMPLES (SEM RISCO)
+marcador.bindTooltip(
+    nome + " | " + dist.toFixed(2) + " km",
+    { direction: "top" }
+);
 
             resultados.push({
                 nome, email,
