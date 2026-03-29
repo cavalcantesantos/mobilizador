@@ -200,11 +200,27 @@ async function iniciar(){
 
     L.marker([latBase, lonBase]).addTo(map).bindPopup("Base");
 
-    L.circle([latBase, lonBase], {
-        radius: raio * 1000,
-        color: "blue",
-        fillOpacity: 0.1
-    }).addTo(map);
+    let marcador = L.circleMarker([lat, lon], {
+    color: dentroRaio ? "green" : "red",
+    radius: 6
+}).addTo(map);
+
+// TEXTO RESUMIDO (hover)
+marcador.bindTooltip(
+    `${nome} | ${dist.toFixed(2)} km | ${dentroRaio ? "Dentro" : "Fora"}`,
+    {
+        permanent: false,
+        direction: "top"
+    }
+);
+
+// POPUP COMPLETO (clique)
+marcador.bindPopup(`
+    <b>${nome}</b><br>
+    Email: ${email}<br>
+    Distância: ${dist.toFixed(2)} km<br>
+    Status: <b>${dentroRaio ? "Dentro do raio" : "Fora do raio"}</b>
+`);
 
     let linhas = document.getElementById("csv").value.split("\n");
 
