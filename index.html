@@ -2,10 +2,14 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<title>Mobilizador Profissional</title>
+<title>Mobilizador Blindado</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+<!-- EmailJS (opcional) -->
 <script src="https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js"></script>
+
+<!-- PDF -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <style>
@@ -56,11 +60,13 @@ Longitude Base:
 Raio (km):
 <input id="raio" value="10">
 
+<label><input type="checkbox" id="usarEmail"> Ativar envio de email</label>
+
 CSV:
 <textarea id="csv">
-João,joao@email.com,70070-350
-Maria,maria@email.com,-15.82,-47.90
-Pedro,pedro@email.com,Brasília DF
+João,teste@email.com,70070-350
+Maria,teste@email.com,-15.82,-47.90
+Pedro,teste@email.com,Brasília DF
 </textarea>
 
 <button onclick="iniciar()">Iniciar</button>
@@ -80,13 +86,22 @@ Fora: <span id="fora">0</span>
 
 </div>
 
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
 <script>
-emailjs.init("SUA_PUBLIC_KEY"); // <-- COLOQUE AQUI
+
+// CONFIG EMAIL (preencha depois)
+const EMAIL_CONFIG = {
+    publicKey: "SUA_PUBLIC_KEY",
+    serviceID: "SEU_SERVICE_ID",
+    templateID: "SEU_TEMPLATE_ID"
+};
+
+let emailAtivo = false;
+let resultados = [];
 
 let map = L.map('map').setView([-15.8129, -47.9126], 11);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
-let resultados = [];
 
 function log(msg){
     document.getElementById("log").innerHTML += msg+"<br>";
@@ -106,13 +121,64 @@ function haversine(lat1, lon1, lat2, lon2){
     return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
 }
 
-async function geocodeEndereco(end){
-    let geo = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${end}`);
-    let data = await geo.json();
-    if(data.length > 0){
-        return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+async function geocode(end){
+    try{
+        let geo = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${end}`);
+        let data = await geo.json();
+        if(data.length > 0){
+            return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+        }
+    } catch(e){
+        log("Erro geocoding");
     }
     return null;
+}
+
+// EMAIL SEGURO
+async function enviarEmail(nome, email){
+
+    if(!emailAtivo){
+        log("Email desativado");
+        return;
+    }
+
+    try{
+        await emailjs.send(
+            EMAIL_CONFIG.serviceID,
+            EMAIL_CONFIG.templateID,
+            {
+                to_email: email,
+                message: "Você foi convocado. Apresente-se no local indicado nesse email."
+            }
+        );
+        log("Email enviado: " + nome);
+    }catch(e){
+        log("Erro email: " + nome);
+    }
+}
+
+// INIT EMAIL
+function iniciarEmail(){
+
+    try{
+        if(document.getElementById("usarEmail").checked){
+            emailAtivo = true;
+
+            if(typeof emailjs !== "undefined"){
+                emailjs.init(EMAIL_CONFIG.publicKey);
+                log("EmailJS ativo");
+            }else{
+                log("EmailJS não carregado");
+                emailAtivo = false;
+            }
+        }else{
+            emailAtivo = false;
+            log("Email desativado");
+        }
+    }catch(e){
+        log("Falha ao iniciar email");
+        emailAtivo = false;
+    }
 }
 
 async function iniciar(){
@@ -120,20 +186,27 @@ async function iniciar(){
     resultados = [];
     document.getElementById("log").innerHTML = "";
 
-    let latBase = parseFloat(latBase.value);
-    let lonBase = parseFloat(lonBase.value);
-    let raio = parseFloat(raio.value);
+    iniciarEmail();
+
+    let latBase = parseFloat(document.getElementById("latBase").value);
+    let lonBase = parseFloat(document.getElementById("lonBase").value);
+    let raio = parseFloat(document.getElementById("raio").value);
+
+    map.eachLayer(layer => {
+        if(layer instanceof L.Marker || layer instanceof L.Circle || layer instanceof L.CircleMarker){
+            map.removeLayer(layer);
+        }
+    });
 
     L.marker([latBase, lonBase]).addTo(map).bindPopup("Base");
 
-    // DESENHA RAIO
     L.circle([latBase, lonBase], {
         radius: raio * 1000,
         color: "blue",
         fillOpacity: 0.1
     }).addTo(map);
 
-    let linhas = csv.value.split("\n");
+    let linhas = document.getElementById("csv").value.split("\n");
 
     let proc=0, dentro=0, fora=0;
 
@@ -142,16 +215,21 @@ async function iniciar(){
         if(!linha.trim()) continue;
 
         let p = linha.split(",");
-
         let nome = p[0];
         let email = p[1];
         let lat=null, lon=null;
 
+        log("Processando: " + nome);
+
+        // LAT LON
         if(p.length >= 4){
             lat = parseFloat(p[2]);
             lon = parseFloat(p[3]);
-        } else {
-            let coord = await geocodeEndereco(p[2]);
+        }
+
+        // ENDEREÇO / CEP
+        if(!lat || !lon){
+            let coord = await geocode(p[2]);
             if(coord){
                 lat = coord[0];
                 lon = coord[1];
@@ -165,14 +243,8 @@ async function iniciar(){
 
             if(dentroRaio){
                 dentro++;
-
-                // ENVIO DE EMAIL
-                emailjs.send("SEU_SERVICE_ID", "SEU_TEMPLATE_ID", {
-                    to_email: email,
-                    message: "Você foi convocado. Apresente-se no local indicado nesse email."
-                });
-
-            } else {
+                await enviarEmail(nome, email);
+            }else{
                 fora++;
             }
 
@@ -181,31 +253,32 @@ async function iniciar(){
             }).addTo(map);
 
             resultados.push({
-                nome, email, dist: dist.toFixed(2),
+                nome, email,
+                dist: dist.toFixed(2),
                 status: dentroRaio ? "Dentro" : "Fora"
             });
 
-        } else {
-            log("Erro: "+nome);
+        }else{
+            log("Erro localização: " + nome);
         }
 
         proc++;
 
-        procSpan.innerText = proc;
-        dentroSpan.innerText = dentro;
-        foraSpan.innerText = fora;
+        document.getElementById("proc").innerText = proc;
+        document.getElementById("dentro").innerText = dentro;
+        document.getElementById("fora").innerText = fora;
     }
 
     log("Finalizado.");
 }
 
+// PDF
 function gerarPDF(){
 
     const { jsPDF } = window.jspdf;
     let doc = new jsPDF();
 
     let y = 10;
-
     doc.text("Relatório de Mobilização", 10, y);
     y+=10;
 
