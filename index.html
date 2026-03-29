@@ -1,95 +1,217 @@
 <!DOCTYPE html>
-<html lang="pt-br">
+<html>
 <head>
 <meta charset="utf-8"/>
-<title>Sistema Operacional Público</title>
+<title>Sistema Operacional Institucional</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <style>
-body{font-family:Arial;margin:0;background:#f4f6f9}
-h2{margin-top:0}
-.controls{padding:15px;background:#ffffff;box-shadow:0 2px 8px rgba(0,0,0,0.1)}
-input,textarea,button{width:100%;margin-top:5px;margin-bottom:10px;padding:8px}
-button{background:#1f4e79;color:#fff;border:none;cursor:pointer;font-weight:bold}
-button:hover{opacity:0.9}
-#map{height:500px}
-#painel{background:#1f4e79;color:#fff;padding:10px;font-weight:bold}
-#log{background:#000;color:#00ff00;height:160px;overflow:auto;padding:10px;font-size:12px}
-.kpis{display:flex;gap:10px;margin-bottom:10px}
-.card{flex:1;background:#1f4e79;color:#fff;padding:10px;border-radius:6px;text-align:center}
-.card span{display:block;font-size:20px;font-weight:bold}
+
+body{
+margin:0;
+font-family:'Segoe UI',Roboto,Arial;
+background:#eef1f5;
+color:#2c3e50;
+}
+
+.topbar{
+background:#0b3d6d;
+color:white;
+padding:15px 25px;
+font-size:20px;
+font-weight:600;
+letter-spacing:0.5px;
+}
+
+.container{
+display:grid;
+grid-template-columns:320px 1fr;
+gap:20px;
+padding:20px;
+}
+
+.card{
+background:white;
+padding:15px;
+border-radius:8px;
+box-shadow:0 4px 12px rgba(0,0,0,0.08);
+margin-bottom:15px;
+}
+
+.card h3{
+margin-top:0;
+font-size:16px;
+margin-bottom:10px;
+}
+
+input,textarea{
+width:100%;
+padding:8px;
+border:1px solid #ccc;
+border-radius:4px;
+margin-bottom:8px;
+font-size:13px;
+}
+
+button{
+padding:8px 12px;
+border:none;
+border-radius:4px;
+background:#0b3d6d;
+color:white;
+cursor:pointer;
+font-size:13px;
+margin-right:5px;
+}
+
+button:hover{
+background:#145ea8;
+}
+
+.kpis{
+display:flex;
+gap:15px;
+margin-bottom:15px;
+}
+
+.kpi{
+flex:1;
+background:white;
+padding:15px;
+border-radius:8px;
+box-shadow:0 4px 12px rgba(0,0,0,0.08);
+text-align:center;
+}
+
+.kpi h2{
+margin:0;
+font-size:26px;
+color:#0b3d6d;
+}
+
+.kpi span{
+font-size:12px;
+color:#777;
+}
+
+#map{
+height:500px;
+border-radius:8px;
+box-shadow:0 4px 12px rgba(0,0,0,0.08);
+}
+
+#log{
+background:#111;
+color:#00ff88;
+padding:10px;
+height:150px;
+overflow:auto;
+border-radius:8px;
+font-size:12px;
+font-family:monospace;
+}
+
 </style>
 </head>
 <body>
 
-<div class="controls">
-<h2>Sistema Operacional Público</h2>
-
-CEP Principal:
-<input type="text" id="cepPrincipal" placeholder="Ex: 70150-900">
-
-Latitude Base:
-<input type="number" id="latBase" step="0.000001" value="-15.793889">
-
-Longitude Base:
-<input type="number" id="lonBase" step="0.000001" value="-47.882778">
-
-Raio (km):
-<input type="number" id="raio" value="50">
-
-CSV (cep,email,lat,lon):
-<textarea id="csv"></textarea>
-
-<button onclick="iniciar()">Iniciar Operação</button>
-<button onclick="gerarPDF()">Gerar Relatório PDF</button>
+<div class="topbar">
+Sistema Operacional Institucional
 </div>
 
+<div class="container">
+
+<div>
+
+<div class="card">
+<h3>Configuração da Operação</h3>
+
+CEP Principal
+<input type="text" id="cepPrincipal">
+
+Latitude Base
+<input type="number" id="latBase" value="-15.793889">
+
+Longitude Base
+<input type="number" id="lonBase" value="-47.882778">
+
+Raio (km)
+<input type="number" id="raio" value="50">
+
+CSV (cep,email,lat,lon)
+<textarea id="csv"></textarea>
+
+<button onclick="sistema.iniciar()">Iniciar</button>
+<button onclick="sistema.gerarPDF()">Gerar PDF</button>
+<button onclick="sistema.limparLog()">Limpar Log</button>
+
+</div>
+
+<div class="card">
+<h3>Log Operacional</h3>
+<div id="log"></div>
+</div>
+
+</div>
+
+<div>
+
 <div class="kpis">
-<div class="card">Processados<span id="kpiProcessados">0</span></div>
-<div class="card">Dentro do raio<span id="kpiDentro">0</span></div>
-<div class="card">Fora do raio<span id="kpiFora">0</span></div>
+<div class="kpi">
+<h2 id="kpiProcessados">0</h2>
+<span>Processados</span>
+</div>
+
+<div class="kpi">
+<h2 id="kpiDentro">0</h2>
+<span>Dentro do Raio</span>
+</div>
+
+<div class="kpi">
+<h2 id="kpiFora">0</h2>
+<span>Fora do Raio</span>
+</div>
 </div>
 
 <div id="map"></div>
-<div id="painel">Aguardando...</div>
-<div id="log"></div>
+
+</div>
+
+</div>
 
 <script>
 
-let dados;
-let coordenadasUsadas = {};
+class SistemaOperacional{
 
-function resetar(){
-dados={
-processados:0,
-dentro:0,
-fora:0,
-convocados:[],
-foraLista:[]
-};
-coordenadasUsadas={};
-}
+constructor(){
+this.resetar();
 
-var map=L.map('map').setView([-15.79,-47.88],11);
+this.map=L.map('map').setView([-15.79,-47.88],11);
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
 maxZoom:19
-}).addTo(map);
+}).addTo(this.map);
 
-let camada=L.layerGroup().addTo(map);
+this.camada=L.layerGroup().addTo(this.map);
+}
 
-function icone(cor){
+resetar(){
+this.dados={processados:0,dentro:0,fora:0,convocados:[]};
+this.coordenadasUsadas={};
+}
+
+icone(cor){
 return L.divIcon({
 className:'',
-iconSize:[18,18],
-html:`<div style="background:${cor};width:16px;height:16px;border-radius:50%;border:2px solid white"></div>`
+iconSize:[16,16],
+html:`<div style="background:${cor};width:14px;height:14px;border-radius:50%;border:2px solid white"></div>`
 });
 }
 
-function distancia(a,b,c,d){
+distancia(a,b,c,d){
 const R=6371;
 let dLat=(c-a)*Math.PI/180;
 let dLon=(d-b)*Math.PI/180;
@@ -100,157 +222,104 @@ Math.sin(dLon/2)**2;
 return R*(2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x)));
 }
 
-function log(msg){
-document.getElementById("log").innerHTML+=msg+"<br>";
+log(msg){
+let linha=document.createElement("div");
+linha.textContent=msg;
+document.getElementById("log").appendChild(linha);
 }
 
-function atualizarKPIs(){
-document.getElementById("kpiProcessados").innerText=dados.processados;
-document.getElementById("kpiDentro").innerText=dados.dentro;
-document.getElementById("kpiFora").innerText=dados.fora;
-
-document.getElementById("painel").innerHTML=
-`Processados: ${dados.processados} |
-Dentro do raio: ${dados.dentro} |
-Fora do raio: ${dados.fora}`;
+limparLog(){
+document.getElementById("log").innerHTML="";
 }
 
-function ajustarCoordenada(lat,lon){
+atualizarKPIs(){
+document.getElementById("kpiProcessados").textContent=this.dados.processados;
+document.getElementById("kpiDentro").textContent=this.dados.dentro;
+document.getElementById("kpiFora").textContent=this.dados.fora;
+}
+
+ajustarCoordenada(lat,lon){
 let chave=lat+","+lon;
-if(!coordenadasUsadas[chave]){
-coordenadasUsadas[chave]=1;
+if(!this.coordenadasUsadas[chave]){
+this.coordenadasUsadas[chave]=1;
 return{lat,lon};
 }else{
-let offset=coordenadasUsadas[chave]*0.0003;
-coordenadasUsadas[chave]++;
-return{
-lat:lat+offset,
-lon:lon+offset
-};
+let offset=this.coordenadasUsadas[chave]*0.0005;
+this.coordenadasUsadas[chave]++;
+return{lat:lat+offset,lon:lon+offset};
 }
 }
 
-function iniciar(){
-resetar();
-document.getElementById("log").innerHTML="";
-camada.clearLayers();
+iniciar(){
 
-let cepPrincipal=document.getElementById("cepPrincipal").value || "NÃO INFORMADO";
+this.resetar();
+this.limparLog();
+this.camada.clearLayers();
+
+let cepPrincipal=document.getElementById("cepPrincipal").value;
 let latBase=parseFloat(document.getElementById("latBase").value);
 let lonBase=parseFloat(document.getElementById("lonBase").value);
 let raio=parseFloat(document.getElementById("raio").value);
 
-if(isNaN(latBase)||isNaN(lonBase)||isNaN(raio)){
-alert("Dados base inválidos.");
-return;
-}
+this.map.setView([latBase,lonBase],12);
 
-map.setView([latBase,lonBase],12);
+L.marker([latBase,lonBase],{icon:this.icone("#007bff")}).addTo(this.camada);
+L.circle([latBase,lonBase],{radius:raio*1000,color:"#007bff",fill:false}).addTo(this.camada);
 
-// CEP PRINCIPAL
-L.marker([latBase,lonBase],{
-icon:icone("#007bff"),
-zIndexOffset:1000
-}).addTo(camada).bindPopup("CEP Principal: "+cepPrincipal).openPopup();
+let linhas=document.getElementById("csv").value.trim().split("\n");
+let inicio=linhas[0].toLowerCase().includes("cep")?1:0;
 
-L.circle([latBase,lonBase],{
-radius:raio*1000,
-color:"#007bff",
-fill:false
-}).addTo(camada);
+for(let i=inicio;i<linhas.length;i++){
 
-let textoCSV = document.getElementById("csv").value;
+let partes=linhas[i].split(",");
+if(partes.length<4) continue;
 
-if(!textoCSV){
-atualizarKPIs();
-return;
-}
+let cep=partes[0].trim();
+let email=partes[1].trim();
+let lat=parseFloat(partes[2]);
+let lon=parseFloat(partes[3]);
 
-// Remove caracteres invisíveis
-textoCSV = textoCSV.replace(/\r/g,"").trim();
+if(isNaN(lat)||isNaN(lon)) continue;
 
-let linhas = textoCSV.split("\n").filter(l => l.trim() !== "");
+this.dados.processados++;
 
-// Remove cabeçalho automaticamente se existir
-if(linhas.length > 0 && linhas[0].toLowerCase().includes("cep")){
-linhas.shift();
-}
+let km=this.distancia(latBase,lonBase,lat,lon);
+let ajustado=this.ajustarCoordenada(lat,lon);
 
-linhas.forEach(linha => {
-
-let partes = linha.split(",");
-if(partes.length < 4) return;
-
-let cep = partes[0].trim();
-let email = partes[1].trim();
-let lat = parseFloat(partes[2]);
-let lon = parseFloat(partes[3]);
-
-if(isNaN(lat) || isNaN(lon)) return;
-
-dados.processados++;
-
-let km = distancia(latBase,lonBase,lat,lon);
-let ajustado = ajustarCoordenada(lat,lon);
-
-if(km <= raio){
-dados.dentro++;
-
-let mensagem = `${email} (CEP ${cep}) → você está sendo convocado. Compareça no endereço do CEP principal e mostre o CEP principal.`;
-
-dados.convocados.push(mensagem);
-
-L.marker([ajustado.lat,ajustado.lon],{
-icon:icone("#28a745")
-}).addTo(camada);
-
+if(km<=raio){
+this.dados.dentro++;
+L.marker([ajustado.lat,ajustado.lon],{icon:this.icone("#28a745")}).addTo(this.camada);
+this.log(`CONVOCADO: ${email} - CEP ${cep}`);
 }else{
-dados.fora++;
-
-L.marker([ajustado.lat,ajustado.lon],{
-icon:icone("#dc3545")
-}).addTo(camada);
+this.dados.fora++;
+L.marker([ajustado.lat,ajustado.lon],{icon:this.icone("#dc3545")}).addTo(this.camada);
+this.log(`FORA DO RAIO: CEP ${cep}`);
 }
 
-});
-
-
-if(camada.getLayers().length>0){
-map.fitBounds(camada.getBounds());
 }
 
-atualizarKPIs();
-log("Operação concluída.");
+if(this.camada.getLayers().length>0){
+this.map.fitBounds(this.camada.getBounds());
 }
 
-function gerarPDF(){
+this.atualizarKPIs();
+this.log("Operação finalizada.");
 
+}
+
+gerarPDF(){
 const{jsPDF}=window.jspdf;
 let doc=new jsPDF();
-
-doc.setFontSize(16);
-doc.text("RELATÓRIO OPERACIONAL",10,15);
-
-doc.setFontSize(11);
-doc.text(`Processados: ${dados.processados}`,10,30);
-doc.text(`Dentro do raio: ${dados.dentro}`,10,36);
-doc.text(`Fora do raio: ${dados.fora}`,10,42);
-
-let y=55;
-doc.text("Convocados:",10,y);
-y+=6;
-
-dados.convocados.forEach(c=>{
-doc.text("- "+c,10,y);
-y+=6;
-if(y>280){doc.addPage();y=20;}
-});
-
-doc.save("relatorio_operacional.pdf");
+doc.text("Relatório Operacional Institucional",10,15);
+doc.text(`Processados: ${this.dados.processados}`,10,30);
+doc.text(`Dentro: ${this.dados.dentro}`,10,36);
+doc.text(`Fora: ${this.dados.fora}`,10,42);
+doc.save("relatorio_institucional.pdf");
 }
 
-resetar();
-atualizarKPIs();
+}
+
+const sistema=new SistemaOperacional();
 
 </script>
 </body>
