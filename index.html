@@ -67,9 +67,14 @@ Raio (km):
 
 CSV:
 <textarea id="csv">
-João,teste@email.com,70070-350
-Maria,teste@email.com,-15.82,-47.90
-Pedro,teste@email.com,Brasília DF
+João,teste@email.com,70200-610
+Maria,teste@email.com,-15.81,-47.91
+Pedro,teste@email.com,BR 020, KM 12,5 condomínio alto da boa vista, sobradinho, Brasília DF
+Pedro Silva,pedro1@teste.com,BR 020, KM 12,5 Condomínio Alto da Boa Vista, Sobradinho, Brasília DF
+Maria Souza,maria2@teste.com,BR 020, KM 13 Condomínio Alto da Boa Vista, Sobradinho, Brasília DF
+João Pereira,joao3@teste.com,BR 020, KM 14 Condomínio Alto da Boa Vista, Sobradinho, Brasília DF
+Ana Oliveira,ana4@teste.com,BR 020, KM 15 Condomínio Alto da Boa Vista, Sobradinho, Brasília DF
+Carlos Santos,carlos5@teste.com,BR 020, KM 16 Condomínio Alto da Boa Vista, Sobradinho, Brasília DF
 </textarea>
 
 <button onclick="iniciar()">Iniciar</button>
@@ -232,8 +237,7 @@ async function iniciar(){
 
             let dist = haversine(latBase, lonBase, lat, lon);
 
-            // 🚀 TEMPO DE DESLOCAMENTO
-            let velocidadeMedia = 50; // km/h
+            let velocidadeMedia = 50;
             let tempoMin = (dist / velocidadeMedia) * 60;
 
             let dentroRaio = dist <= raio;
@@ -245,7 +249,11 @@ async function iniciar(){
                 fora++;
             }
 
-            const marcador = L.circleMarker([lat, lon], {
+            // 🔥 CORREÇÃO DEFINITIVA: ANTI-SOBREPOSIÇÃO
+            let offsetLat = (Math.random() - 0.5) * 0.002;
+            let offsetLon = (Math.random() - 0.5) * 0.002;
+
+            const marcador = L.circleMarker([lat + offsetLat, lon + offsetLon], {
                 color: dentroRaio ? "green" : "red",
                 radius: 6
             });
@@ -301,3 +309,4 @@ function gerarPDF(){
 </script>
 
 </body>
+</html>
