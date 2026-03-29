@@ -2,45 +2,46 @@
 <html>
 <head>
 <meta charset="utf-8"/>
-<title>Sistema Operacional Público</title>
+<title>Sistema Operacional Público 2.0</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <style>
-body{font-family:Arial;margin:0}
+body{font-family:Arial;margin:0;background:#f4f6f9}
 #map{height:500px}
-.controls{padding:10px;background:#f2f2f2}
+.controls{padding:15px;background:white;box-shadow:0 2px 6px rgba(0,0,0,0.1)}
 textarea{width:100%;height:120px}
 #painel{background:#111;color:#fff;padding:10px;font-weight:bold}
 #log{background:#000;color:#00ff00;height:180px;overflow:auto;padding:10px;font-size:12px}
-button{margin-top:5px}
-input{margin-bottom:5px;width:100%}
+button{margin-top:5px;padding:6px 10px;cursor:pointer}
+input{margin-bottom:5px;width:100%;padding:4px}
 </style>
 </head>
 <body>
 
 <div class="controls">
-<h2>Sistema Operacional Público</h2>
+<h2>Sistema Operacional Público 2.0</h2>
 
-CEP Principal:<br>
-<input type="text" id="cepPrincipal" placeholder="Ex: 70150-900"><br>
+CEP Principal:
+<input type="text" id="cepPrincipal" placeholder="Ex: 70150-900">
 
-Latitude Base:<br>
-<input type="number" id="latBase" step="0.000001" value="-15.793889"><br>
+Latitude Base:
+<input type="number" id="latBase" step="0.000001" value="-15.793889">
 
-Longitude Base:<br>
-<input type="number" id="lonBase" step="0.000001" value="-47.882778"><br>
+Longitude Base:
+<input type="number" id="lonBase" step="0.000001" value="-47.882778">
 
-Raio (km):<br>
-<input type="number" id="raio" value="50"><br>
+Raio (km):
+<input type="number" id="raio" value="50">
 
-CSV (cep,email,lat,lon):<br>
-<textarea id="csv"></textarea><br>
+CSV (cep,email,lat,lon):
+<textarea id="csv"></textarea>
 
-<button onclick="iniciar()">Iniciar Operação</button>
-<button onclick="gerarPDF()">Gerar Relatório PDF</button>
+<button onclick="sistema.iniciar()">Iniciar Operação</button>
+<button onclick="sistema.gerarPDF()">Gerar Relatório PDF</button>
+<button onclick="sistema.limparLog()">Limpar Log</button>
 </div>
 
 <div id="painel">Aguardando...</div>
@@ -49,29 +50,31 @@ CSV (cep,email,lat,lon):<br>
 
 <script>
 
-let dados;
-let coordenadasUsadas = {};
+class SistemaOperacional {
 
-function resetar(){
-dados={
+constructor(){
+this.resetar();
+this.map=L.map('map').setView([-15.79,-47.88],11);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+maxZoom:19
+}).addTo(this.map);
+
+this.camada=L.layerGroup().addTo(this.map);
+}
+
+resetar(){
+this.dados={
 processados:0,
 dentro:0,
 fora:0,
 convocados:[],
 foraLista:[]
 };
-coordenadasUsadas={};
+this.coordenadasUsadas={};
 }
 
-var map=L.map('map').setView([-15.79,-47.88],11);
-
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-maxZoom:19
-}).addTo(map);
-
-let camada=L.layerGroup().addTo(map);
-
-function icone(cor){
+icone(cor){
 return L.divIcon({
 className:'',
 iconSize:[18,18],
@@ -79,7 +82,7 @@ html:`<div style="background:${cor};width:16px;height:16px;border-radius:50%;bor
 });
 }
 
-function distancia(a,b,c,d){
+distancia(a,b,c,d){
 const R=6371;
 let dLat=(c-a)*Math.PI/180;
 let dLon=(d-b)*Math.PI/180;
@@ -90,59 +93,70 @@ Math.sin(dLon/2)**2;
 return R*(2*Math.atan2(Math.sqrt(x),Math.sqrt(1-x)));
 }
 
-function log(msg){
-document.getElementById("log").innerHTML+=msg+"<br>";
+log(msg){
+let linha=document.createElement("div");
+linha.textContent=msg;
+document.getElementById("log").appendChild(linha);
 }
 
-function atualizar(){
-document.getElementById("painel").innerHTML=
-`Processados: ${dados.processados} |
-Dentro do raio: ${dados.dentro} |
-Fora do raio: ${dados.fora}`;
+limparLog(){
+document.getElementById("log").innerHTML="";
 }
 
-function ajustarCoordenada(lat,lon){
+atualizarPainel(){
+document.getElementById("painel").textContent=
+`Processados: ${this.dados.processados} | Dentro: ${this.dados.dentro} | Fora: ${this.dados.fora}`;
+}
+
+ajustarCoordenada(lat,lon){
 let chave=lat+","+lon;
-if(!coordenadasUsadas[chave]){
-coordenadasUsadas[chave]=1;
+if(!this.coordenadasUsadas[chave]){
+this.coordenadasUsadas[chave]=1;
 return{lat,lon};
 }else{
-let offset=coordenadasUsadas[chave]*0.0005;
-coordenadasUsadas[chave]++;
-return{
-lat:lat+offset,
-lon:lon+offset
-};
+let offset=this.coordenadasUsadas[chave]*0.0005;
+this.coordenadasUsadas[chave]++;
+return{lat:lat+offset,lon:lon+offset};
 }
 }
 
-function iniciar(){
+iniciar(){
 
-resetar();
-document.getElementById("log").innerHTML="";
-camada.clearLayers();
+this.resetar();
+this.limparLog();
+this.camada.clearLayers();
 
 let cepPrincipal=document.getElementById("cepPrincipal").value || "NÃO INFORMADO";
 let latBase=parseFloat(document.getElementById("latBase").value);
 let lonBase=parseFloat(document.getElementById("lonBase").value);
 let raio=parseFloat(document.getElementById("raio").value);
 
-map.setView([latBase,lonBase],12);
+if(isNaN(latBase)||isNaN(lonBase)||isNaN(raio)){
+alert("Dados base inválidos.");
+return;
+}
+
+this.map.setView([latBase,lonBase],12);
 
 L.marker([latBase,lonBase],{
-icon:icone("blue"),
+icon:this.icone("blue"),
 zIndexOffset:1000
-}).addTo(camada);
+}).addTo(this.camada);
 
 L.circle([latBase,lonBase],{
 radius:raio*1000,
 color:"blue",
 fill:false
-}).addTo(camada);
+}).addTo(this.camada);
 
 let linhas=document.getElementById("csv").value.trim().split("\n");
+let inicio=0;
 
-for(let i=1;i<linhas.length;i++){
+if(linhas[0].toLowerCase().includes("cep")){
+inicio=1;
+}
+
+for(let i=inicio;i<linhas.length;i++){
 
 if(!linhas[i]) continue;
 
@@ -154,48 +168,63 @@ let email=partes[1].trim();
 let lat=parseFloat(partes[2]);
 let lon=parseFloat(partes[3]);
 
-dados.processados++;
+if(isNaN(lat)||isNaN(lon)){
+this.log(`❌ Coordenada inválida no CEP ${cep}`);
+continue;
+}
 
-let km=distancia(latBase,lonBase,lat,lon);
-let ajustado=ajustarCoordenada(lat,lon);
+this.dados.processados++;
+
+let km=this.distancia(latBase,lonBase,lat,lon);
+let ajustado=this.ajustarCoordenada(lat,lon);
 
 if(km<=raio){
-dados.dentro++;
-let mensagem=`${email} (CEP ${cep}) → você está sendo convocado. Compareça no endereço do CEP principal`;
-dados.convocados.push(mensagem);
-L.marker([ajustado.lat,ajustado.lon],{icon:icone("green")}).addTo(camada);
-log("📨 "+mensagem);
+this.dados.dentro++;
+let mensagem=`${email} (CEP ${cep}) → você está sendo convocado. Compareça no endereço do CEP principal (${cepPrincipal}) e mostre o CEP principal para referência.`;
+this.dados.convocados.push(mensagem);
+L.marker([ajustado.lat,ajustado.lon],{icon:this.icone("green")}).addTo(this.camada);
+this.log("📨 "+mensagem);
 }else{
-dados.fora++;
-dados.foraLista.push(cep);
-L.marker([ajustado.lat,ajustado.lon],{icon:icone("red")}).addTo(camada);
-log(`⚠ CEP ${cep} fora do raio`);
+this.dados.fora++;
+this.dados.foraLista.push(cep);
+L.marker([ajustado.lat,ajustado.lon],{icon:this.icone("red")}).addTo(this.camada);
+this.log(`⚠ CEP ${cep} fora do raio`);
 }
 
 }
 
-atualizar();
-log("Operação concluída.");
+if(this.camada.getLayers().length>0){
+this.map.fitBounds(this.camada.getBounds());
 }
 
-function gerarPDF(){
+this.atualizarPainel();
+this.log("Operação concluída.");
+}
+
+gerarPDF(){
 
 const{jsPDF}=window.jspdf;
 let doc=new jsPDF();
+
+let agora=new Date();
 
 doc.setFontSize(16);
 doc.text("RELATÓRIO OPERACIONAL",10,15);
 
 doc.setFontSize(11);
-doc.text(`Processados: ${dados.processados}`,10,30);
-doc.text(`Dentro do raio: ${dados.dentro}`,10,36);
-doc.text(`Fora do raio: ${dados.fora}`,10,42);
+doc.text(`Data: ${agora.toLocaleDateString()}`,10,30);
+doc.text(`Hora: ${agora.toLocaleTimeString()}`,10,36);
+doc.text(`CEP Principal: ${document.getElementById("cepPrincipal").value}`,10,42);
 
-let y=55;
+doc.text(`Processados: ${this.dados.processados}`,10,52);
+doc.text(`Dentro do raio: ${this.dados.dentro}`,10,58);
+doc.text(`Fora do raio: ${this.dados.fora}`,10,64);
+
+let y=75;
 doc.text("Convocados:",10,y);
 y+=6;
 
-dados.convocados.forEach(c=>{
+this.dados.convocados.forEach(c=>{
 doc.text("- "+c,10,y);
 y+=6;
 if(y>280){doc.addPage();y=20;}
@@ -204,8 +233,9 @@ if(y>280){doc.addPage();y=20;}
 doc.save("relatorio_operacional.pdf");
 }
 
-resetar();
-atualizar();
+}
+
+const sistema=new SistemaOperacional();
 
 </script>
 </body>
