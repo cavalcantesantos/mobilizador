@@ -1,229 +1,231 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-br">
 <head>
-<meta charset="utf-8"/>
-<title>Sistema Operacional Institucional</title>
+<meta charset="UTF-8">
+<title>Mobilizador</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <style>
-body{margin:0;font-family:'Segoe UI',Roboto;background:#eef1f5}
-.topbar{background:#0b3d6d;color:#fff;padding:15px;font-size:18px}
-.container{display:grid;grid-template-columns:320px 1fr;gap:20px;padding:20px}
-.card{background:#fff;padding:15px;border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,.08);margin-bottom:15px}
-.kpis{display:flex;gap:15px;margin-bottom:15px}
-.kpi{flex:1;background:#fff;padding:15px;border-radius:8px;text-align:center}
-#map{height:500px;border-radius:8px}
-#log{background:#111;color:#0f0;padding:10px;height:150px;overflow:auto;font-family:monospace;font-size:12px}
-button{padding:8px;background:#0b3d6d;color:#fff;border:none;border-radius:4px;cursor:pointer}
-button:hover{background:#145ea8}
-input,textarea{width:100%;margin-bottom:8px;padding:6px}
+body { font-family: Arial; margin:0; }
+#topo { background:#0b3d6b; color:white; padding:10px; }
+#container { display:flex; }
+#painel {
+    width:300px;
+    padding:10px;
+    background:#f4f4f4;
+}
+#map { height:90vh; flex:1; }
+
+input, textarea { width:100%; margin-bottom:5px; }
+
+button {
+    width:100%;
+    padding:8px;
+    margin-top:5px;
+    background:#0b3d6b;
+    color:white;
+    border:none;
+    cursor:pointer;
+}
+
+#log {
+    background:black;
+    color:#00ff88;
+    height:150px;
+    overflow:auto;
+    padding:5px;
+    font-size:12px;
+}
 </style>
 </head>
 
 <body>
 
-<div class="topbar">Sistema Operacional Institucional</div>
+<div id="topo">Sistema Operacional Institucional</div>
 
-<div class="container">
+<div id="container">
 
-<div>
-
-<div class="card">
+<div id="painel">
 <h3>Configuração</h3>
 
-Latitude Base
-<input id="latBase" value="-15.793889">
+Latitude Base:
+<input id="latBase" value="-15.8129">
 
-Longitude Base
-<input id="lonBase" value="-47.882778">
+Longitude Base:
+<input id="lonBase" value="-47.9126">
 
-Raio (km)
-<input id="raio" value="50">
+Raio (km):
+<input id="raio" value="10">
 
-CSV (cep,email,lat,lon)
-<textarea id="csv"></textarea>
+CSV:
+<textarea id="csv">
+João,joao@email.com,70000-000
+Maria,maria@email.com,-15.82,-47.90
+Pedro,pedro@email.com,Brasília DF
+</textarea>
 
-<button onclick="iniciarSeguro()">Iniciar</button>
-<button onclick="sistema.gerarPDF()">PDF</button>
-</div>
+<button onclick="iniciar()">Iniciar</button>
 
-<div class="card">
+<h3>Resultado</h3>
+Processados: <span id="proc">0</span><br>
+Dentro: <span id="dentro">0</span><br>
+Fora: <span id="fora">0</span>
+
 <h3>Log</h3>
 <div id="log"></div>
-</div>
 
-</div>
-
-<div>
-
-<div class="kpis">
-<div class="kpi"><h2 id="kpiProcessados">0</h2><span>Processados</span></div>
-<div class="kpi"><h2 id="kpiDentro">0</h2><span>Dentro</span></div>
-<div class="kpi"><h2 id="kpiFora">0</h2><span>Fora</span></div>
 </div>
 
 <div id="map"></div>
 
 </div>
 
-</div>
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
 
 <script>
 
-const ORS_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6ImZjNDJjYWM2ZDYxMzQxNjhiODgyMDQ0OGMzMWY5YWU1IiwiaCI6Im11cm11cjY0In0=";
+let map = L.map('map').setView([-15.8129, -47.9126], 11);
 
-class Sistema{
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+}).addTo(map);
 
-constructor(){
-this.map=L.map('map').setView([-15.79,-47.88],11);
-
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(this.map);
-
-this.layer=L.layerGroup().addTo(this.map);
-
-this.cache=JSON.parse(localStorage.getItem("cacheCEP")||"{}");
+function log(msg){
+    document.getElementById("log").innerHTML += msg+"<br>";
 }
 
-reset(){
-this.data={processados:0,dentro:0,fora:0};
-this.layer.clearLayers();
-document.getElementById("log").innerHTML="";
+function haversine(lat1, lon1, lat2, lon2){
+    const R = 6371;
+    const dLat = (lat2-lat1) * Math.PI/180;
+    const dLon = (lon2-lon1) * Math.PI/180;
+
+    const a =
+        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.cos(lat1*Math.PI/180) *
+        Math.cos(lat2*Math.PI/180) *
+        Math.sin(dLon/2) *
+        Math.sin(dLon/2);
+
+    return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
 }
 
-log(msg){
-let l=document.createElement("div");
-l.textContent=msg;
-document.getElementById("log").appendChild(l);
+async function geocodeCEP(cep){
+    try{
+        let via = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
+        let data = await via.json();
+
+        let endereco = `${data.logradouro} ${data.localidade} ${data.uf}`;
+
+        let geo = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${endereco}`);
+        let geoData = await geo.json();
+
+        if(geoData.length > 0){
+            return [parseFloat(geoData[0].lat), parseFloat(geoData[0].lon)];
+        }
+
+    }catch(e){
+        log("Erro CEP: "+cep);
+    }
+    return null;
 }
 
-update(){
-kpiProcessados.textContent=this.data.processados;
-kpiDentro.textContent=this.data.dentro;
-kpiFora.textContent=this.data.fora;
+async function geocodeEndereco(end){
+    try{
+        let geo = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${end}`);
+        let data = await geo.json();
+
+        if(data.length > 0){
+            return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
+        }
+
+    }catch(e){
+        log("Erro endereço");
+    }
+    return null;
 }
 
-async geo(cep){
-if(this.cache[cep]) return this.cache[cep];
+async function iniciar(){
 
-try{
-let r=await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${cep},Brasil`);
-let j=await r.json();
-if(j.length){
-let c={lat:+j[0].lat,lon:+j[0].lon};
-this.cache[cep]=c;
-localStorage.setItem("cacheCEP",JSON.stringify(this.cache));
-return c;
-}
-}catch{}
-return null;
-}
+    document.getElementById("proc").innerText = 0;
+    document.getElementById("dentro").innerText = 0;
+    document.getElementById("fora").innerText = 0;
+    document.getElementById("log").innerHTML = "";
 
-async rota(a,b){
-try{
-let r=await fetch("https://api.openrouteservice.org/v2/directions/driving-car",{
-method:"POST",
-headers:{
-Authorization:ORS_KEY,
-"Content-Type":"application/json"
-},
-body:JSON.stringify({
-coordinates:[[a.lon,a.lat],[b.lon,b.lat]]
-})
-});
-let j=await r.json();
-return j.routes[0].summary.distance/1000;
-}catch{
-return null;
-}
-}
+    let latBase = parseFloat(document.getElementById("latBase").value);
+    let lonBase = parseFloat(document.getElementById("lonBase").value);
+    let raio = parseFloat(document.getElementById("raio").value);
 
-async processar(){
+    L.marker([latBase, lonBase]).addTo(map).bindPopup("Base");
 
-this.reset();
+    let linhas = document.getElementById("csv").value.split("\n");
 
-let base={
-lat:+latBase.value,
-lon:+lonBase.value
-};
+    let proc=0, dentro=0, fora=0;
 
-let raio=+raio.value;
+    for(let linha of linhas){
 
-L.marker([base.lat,base.lon]).addTo(this.layer);
+        if(!linha.trim()) continue;
 
-let linhas=csv.value.trim().split("\n");
+        let partes = linha.split(",");
 
-for(let linha of linhas){
+        let nome = partes[0];
+        let lat = null;
+        let lon = null;
 
-let p=linha.split(",");
-if(p.length<2) continue;
+        log("Processando: "+nome);
 
-let cep=p[0].trim();
-let lat=parseFloat(p[2]);
-let lon=parseFloat(p[3]);
+        // PRIORIDADE 1: LAT LON
+        if(partes.length >= 4){
+            lat = parseFloat(partes[2]);
+            lon = parseFloat(partes[3]);
+        }
 
-this.data.processados++;
+        // PRIORIDADE 2: CEP
+        else if(partes[2].match(/^\d{5}-?\d{3}$/)){
+            let coord = await geocodeCEP(partes[2]);
+            if(coord){
+                lat = coord[0];
+                lon = coord[1];
+            }
+        }
 
-let coord=null;
+        // PRIORIDADE 3: ENDEREÇO
+        else{
+            let coord = await geocodeEndereco(partes[2]);
+            if(coord){
+                lat = coord[0];
+                lon = coord[1];
+            }
+        }
 
-if(!isNaN(lat)&&!isNaN(lon)){
-coord={lat,lon};
-}else{
-this.log("Buscando "+cep);
-coord=await this.geo(cep);
-}
+        if(lat && lon){
 
-if(!coord){
-this.log("Erro "+cep);
-continue;
-}
+            let dist = haversine(latBase, lonBase, lat, lon);
 
-let d=await this.rota(base,coord);
+            let cor = dist <= raio ? "green" : "red";
 
-if(d==null){
-this.log("Erro rota "+cep);
-continue;
-}
+            if(dist <= raio) dentro++;
+            else fora++;
 
-if(d<=raio){
-this.data.dentro++;
-L.marker([coord.lat,coord.lon]).addTo(this.layer);
-this.log("Dentro "+cep+" ("+d.toFixed(1)+" km)");
-}else{
-this.data.fora++;
-L.marker([coord.lat,coord.lon],{opacity:0.5}).addTo(this.layer);
-this.log("Fora "+cep+" ("+d.toFixed(1)+" km)");
-}
+            L.circleMarker([lat, lon], {
+                color: cor
+            }).addTo(map)
+            .bindPopup(`${nome}<br>${dist.toFixed(2)} km`);
 
-await new Promise(r=>setTimeout(r,250));
-}
+            log(`OK: ${nome} (${dist.toFixed(2)} km)`);
 
-this.update();
+        }else{
+            log("ERRO ao localizar: "+nome);
+        }
 
-this.map.fitBounds(this.layer.getBounds());
+        proc++;
 
-this.log("Finalizado");
+        document.getElementById("proc").innerText = proc;
+        document.getElementById("dentro").innerText = dentro;
+        document.getElementById("fora").innerText = fora;
+    }
 
-}
+    log("Finalizado.");
 
-gerarPDF(){
-const{jsPDF}=window.jspdf;
-let doc=new jsPDF();
-doc.text("Relatório",10,10);
-doc.text("Processados: "+this.data.processados,10,20);
-doc.text("Dentro: "+this.data.dentro,10,30);
-doc.text("Fora: "+this.data.fora,10,40);
-doc.save("relatorio.pdf");
-}
-
-}
-
-const sistema=new Sistema();
-
-async function iniciarSeguro(){
-await sistema.processar();
 }
 
 </script>
