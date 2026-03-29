@@ -161,7 +161,7 @@ let ajustado=ajustarCoordenada(lat,lon);
 
 if(km<=raio){
 dados.dentro++;
-let mensagem=`${email} (CEP ${cep}) → você está sendo convocado. Compareça no endereço do CEP principal (${cepPrincipal})`;
+let mensagem=`${email} (CEP ${cep}) → você está sendo convocado. Compareça no endereço do CEP principal`;
 dados.convocados.push(mensagem);
 L.marker([ajustado.lat,ajustado.lon],{icon:icone("green")}).addTo(camada);
 log("📨 "+mensagem);
