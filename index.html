@@ -231,6 +231,11 @@ async function iniciar(){
         if(lat && lon){
 
             let dist = haversine(latBase, lonBase, lat, lon);
+
+            // 🚀 TEMPO DE DESLOCAMENTO
+            let velocidadeMedia = 50; // km/h
+            let tempoMin = (dist / velocidadeMedia) * 60;
+
             let dentroRaio = dist <= raio;
 
             if(dentroRaio){
@@ -240,7 +245,6 @@ async function iniciar(){
                 fora++;
             }
 
-            // ✅ MARCADOR + TOOLTIP DEFINITIVO
             const marcador = L.circleMarker([lat, lon], {
                 color: dentroRaio ? "green" : "red",
                 radius: 6
@@ -249,12 +253,17 @@ async function iniciar(){
             marcador.addTo(map);
 
             marcador.bindTooltip(
-                nome + " | " + dist.toFixed(2) + " km | " + (dentroRaio ? "Dentro" : "Fora")
+                nome + " | " +
+                dist.toFixed(2) + " km | " +
+                tempoMin.toFixed(0) + " min | " +
+                (dentroRaio ? "Dentro" : "Fora")
             ).openTooltip();
 
             resultados.push({
-                nome, email,
+                nome,
+                email,
                 dist: dist.toFixed(2),
+                tempo: tempoMin.toFixed(0) + " min",
                 status: dentroRaio ? "Dentro" : "Fora"
             });
 
@@ -282,7 +291,7 @@ function gerarPDF(){
     y+=10;
 
     resultados.forEach(r => {
-        doc.text(`${r.nome} | ${r.email} | ${r.dist} km | ${r.status}`, 10, y);
+        doc.text(`${r.nome} | ${r.email} | ${r.dist} km | ${r.tempo} | ${r.status}`, 10, y);
         y+=7;
     });
 
@@ -292,4 +301,3 @@ function gerarPDF(){
 </script>
 
 </body>
-</html>
