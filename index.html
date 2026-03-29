@@ -2,19 +2,17 @@
 <html lang="pt-br">
 <head>
 <meta charset="UTF-8">
-<title>Mobilizador</title>
+<title>Mobilizador Profissional</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/emailjs-com@3/dist/email.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <style>
 body { font-family: Arial; margin:0; }
 #topo { background:#0b3d6b; color:white; padding:10px; }
 #container { display:flex; }
-#painel {
-    width:300px;
-    padding:10px;
-    background:#f4f4f4;
-}
+#painel { width:300px; padding:10px; background:#f4f4f4; }
 #map { height:90vh; flex:1; }
 
 input, textarea { width:100%; margin-bottom:5px; }
@@ -26,7 +24,6 @@ button {
     background:#0b3d6b;
     color:white;
     border:none;
-    cursor:pointer;
 }
 
 #log {
@@ -47,6 +44,7 @@ button {
 <div id="container">
 
 <div id="painel">
+
 <h3>Configuração</h3>
 
 Latitude Base:
@@ -60,12 +58,13 @@ Raio (km):
 
 CSV:
 <textarea id="csv">
-João,joao@email.com,70000-000
+João,joao@email.com,70070-350
 Maria,maria@email.com,-15.82,-47.90
 Pedro,pedro@email.com,Brasília DF
 </textarea>
 
 <button onclick="iniciar()">Iniciar</button>
+<button onclick="gerarPDF()">Gerar PDF</button>
 
 <h3>Resultado</h3>
 Processados: <span id="proc">0</span><br>
@@ -81,14 +80,13 @@ Fora: <span id="fora">0</span>
 
 </div>
 
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
 <script>
+emailjs.init("SUA_PUBLIC_KEY"); // <-- COLOQUE AQUI
 
 let map = L.map('map').setView([-15.8129, -47.9126], 11);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-}).addTo(map);
+let resultados = [];
 
 function log(msg){
     document.getElementById("log").innerHTML += msg+"<br>";
@@ -100,64 +98,42 @@ function haversine(lat1, lon1, lat2, lon2){
     const dLon = (lon2-lon1) * Math.PI/180;
 
     const a =
-        Math.sin(dLat/2) * Math.sin(dLat/2) +
+        Math.sin(dLat/2)**2 +
         Math.cos(lat1*Math.PI/180) *
         Math.cos(lat2*Math.PI/180) *
-        Math.sin(dLon/2) *
-        Math.sin(dLon/2);
+        Math.sin(dLon/2)**2;
 
     return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)));
 }
 
-async function geocodeCEP(cep){
-    try{
-        let via = await fetch(`https://viacep.com.br/ws/${cep}/json/`);
-        let data = await via.json();
-
-        let endereco = `${data.logradouro} ${data.localidade} ${data.uf}`;
-
-        let geo = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${endereco}`);
-        let geoData = await geo.json();
-
-        if(geoData.length > 0){
-            return [parseFloat(geoData[0].lat), parseFloat(geoData[0].lon)];
-        }
-
-    }catch(e){
-        log("Erro CEP: "+cep);
-    }
-    return null;
-}
-
 async function geocodeEndereco(end){
-    try{
-        let geo = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${end}`);
-        let data = await geo.json();
-
-        if(data.length > 0){
-            return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
-        }
-
-    }catch(e){
-        log("Erro endereço");
+    let geo = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${end}`);
+    let data = await geo.json();
+    if(data.length > 0){
+        return [parseFloat(data[0].lat), parseFloat(data[0].lon)];
     }
     return null;
 }
 
 async function iniciar(){
 
-    document.getElementById("proc").innerText = 0;
-    document.getElementById("dentro").innerText = 0;
-    document.getElementById("fora").innerText = 0;
+    resultados = [];
     document.getElementById("log").innerHTML = "";
 
-    let latBase = parseFloat(document.getElementById("latBase").value);
-    let lonBase = parseFloat(document.getElementById("lonBase").value);
-    let raio = parseFloat(document.getElementById("raio").value);
+    let latBase = parseFloat(latBase.value);
+    let lonBase = parseFloat(lonBase.value);
+    let raio = parseFloat(raio.value);
 
     L.marker([latBase, lonBase]).addTo(map).bindPopup("Base");
 
-    let linhas = document.getElementById("csv").value.split("\n");
+    // DESENHA RAIO
+    L.circle([latBase, lonBase], {
+        radius: raio * 1000,
+        color: "blue",
+        fillOpacity: 0.1
+    }).addTo(map);
+
+    let linhas = csv.value.split("\n");
 
     let proc=0, dentro=0, fora=0;
 
@@ -165,32 +141,17 @@ async function iniciar(){
 
         if(!linha.trim()) continue;
 
-        let partes = linha.split(",");
+        let p = linha.split(",");
 
-        let nome = partes[0];
-        let lat = null;
-        let lon = null;
+        let nome = p[0];
+        let email = p[1];
+        let lat=null, lon=null;
 
-        log("Processando: "+nome);
-
-        // PRIORIDADE 1: LAT LON
-        if(partes.length >= 4){
-            lat = parseFloat(partes[2]);
-            lon = parseFloat(partes[3]);
-        }
-
-        // PRIORIDADE 2: CEP
-        else if(partes[2].match(/^\d{5}-?\d{3}$/)){
-            let coord = await geocodeCEP(partes[2]);
-            if(coord){
-                lat = coord[0];
-                lon = coord[1];
-            }
-        }
-
-        // PRIORIDADE 3: ENDEREÇO
-        else{
-            let coord = await geocodeEndereco(partes[2]);
+        if(p.length >= 4){
+            lat = parseFloat(p[2]);
+            lon = parseFloat(p[3]);
+        } else {
+            let coord = await geocodeEndereco(p[2]);
             if(coord){
                 lat = coord[0];
                 lon = coord[1];
@@ -200,32 +161,60 @@ async function iniciar(){
         if(lat && lon){
 
             let dist = haversine(latBase, lonBase, lat, lon);
+            let dentroRaio = dist <= raio;
 
-            let cor = dist <= raio ? "green" : "red";
+            if(dentroRaio){
+                dentro++;
 
-            if(dist <= raio) dentro++;
-            else fora++;
+                // ENVIO DE EMAIL
+                emailjs.send("SEU_SERVICE_ID", "SEU_TEMPLATE_ID", {
+                    to_email: email,
+                    message: "Você foi convocado. Apresente-se no local indicado nesse email."
+                });
+
+            } else {
+                fora++;
+            }
 
             L.circleMarker([lat, lon], {
-                color: cor
-            }).addTo(map)
-            .bindPopup(`${nome}<br>${dist.toFixed(2)} km`);
+                color: dentroRaio ? "green" : "red"
+            }).addTo(map);
 
-            log(`OK: ${nome} (${dist.toFixed(2)} km)`);
+            resultados.push({
+                nome, email, dist: dist.toFixed(2),
+                status: dentroRaio ? "Dentro" : "Fora"
+            });
 
-        }else{
-            log("ERRO ao localizar: "+nome);
+        } else {
+            log("Erro: "+nome);
         }
 
         proc++;
 
-        document.getElementById("proc").innerText = proc;
-        document.getElementById("dentro").innerText = dentro;
-        document.getElementById("fora").innerText = fora;
+        procSpan.innerText = proc;
+        dentroSpan.innerText = dentro;
+        foraSpan.innerText = fora;
     }
 
     log("Finalizado.");
+}
 
+function gerarPDF(){
+
+    const { jsPDF } = window.jspdf;
+    let doc = new jsPDF();
+
+    let y = 10;
+
+    doc.text("Relatório de Mobilização", 10, y);
+    y+=10;
+
+    resultados.forEach(r => {
+        doc.text(`${r.nome} | ${r.email} | ${r.dist} km | ${r.status}`, 10, y);
+        y+=7;
+    });
+
+    doc.save("relatorio.pdf");
 }
 
 </script>
